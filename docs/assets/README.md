@@ -1,14 +1,18 @@
-# Arte do README
+# README artwork
 
 ## `openflow-banner.png`
 
-Ilustração conceitual criada para a apresentação do OpenFlow em 19 de outubro de 2026, por meio da skill `codex-image:generate` e da ferramenta nativa `image_gen` do Codex. O identificador do modelo de imagem não foi informado pela ferramenta; não se atribui a arte a um modelo específico.
+Conceptual artwork originally created for OpenFlow on October 19, 2026, through the `codex-image:generate` skill and Codex's built-in `image_gen` tool. The image model identifier was not reported, so no specific image model is claimed.
 
-Não é captura de tela, demonstração de execução nem resultado produzido pelo OpenFlow ou pelo Google Flow. Os quadros de mídia fazem parte da ilustração. “Google Flow” aparece como texto descritivo da integração, não como logotipo oficial. Não indica afiliação ou endosso do Google.
+This is not a screenshot, a demonstration of a real execution, or an output produced by OpenFlow or Google Flow. The media frames are part of the illustration. The artwork does not imply Google affiliation or endorsement, and it does not use an official Google logo.
 
-O banner é um recurso de documentação versionado. Downloads, mídias de testes e saídas locais continuam em diretórios ignorados, conforme o guia de contribuição.
+On October 21, 2026, the original was edited through the installed `codex-image` script's `edit` command and Codex's built-in image tool to remove all text except **OpenFlow**. The same language-neutral image is shared by the [English](../../README.md) and [Brazilian Portuguese](../../README.pt-BR.md) documentation. Local lossless PNG compression was applied after inspection; intermediate outputs are not versioned.
 
-### Briefing de geração
+The banner is a versioned documentation asset. Downloads, test media, and local outputs remain in ignored directories, as described in the [contribution guide](../../CONTRIBUTING.md).
+
+### Original generation brief
+
+The following brief records the original Portuguese-labelled version; it is not a specification for future translations.
 
 ```text
 Generate exactly ONE original raster hero banner for the open-source project OpenFlow.
@@ -40,4 +44,24 @@ No screenshots or fake app UI, no performance claims, no watermarks,
 no third party logos. Visual must read cleanly at 900px wide.
 Use the best native image quality available without claiming or changing
 a specific model.
+```
+
+### Language-neutral edit brief
+
+```text
+Edit this existing OpenFlow README banner. Use built-in image_gen only,
+no API fallback. Only text allowed in final image is the existing central
+word OpenFlow.
+
+Remove every other text: Agente de IA; MCP; REST; Google Flow; entire bottom
+tagline Seu agente de IA conectado ao Google Flow. Reconstruct backgrounds
+and illuminated routes naturally where letters and protocol pills were,
+not with visible flat boxes or blur patches.
+
+Preserve original aspect ratio, dark graphite/aqua/blue palette, abstract
+agent device left, elegant bridge center with OpenFlow lettering unchanged,
+cinematic landscape media frames right, lighting, textures and visual quality.
+This is localization-neutral artwork shared between English and Portuguese
+README files. No new words, no official logos, no extra elements, no watermarks.
+Generate exactly one edit.
 ```
