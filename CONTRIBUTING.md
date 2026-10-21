@@ -1,47 +1,56 @@
-# Contribuindo com o OpenFlow
+English | [Português (Brasil)](CONTRIBUTING.pt-BR.md)
 
-Contribuições de código, testes e documentação são bem-vindas. Você pode participar em **português ou inglês**; não precisa de uma conta Google ou de créditos do Flow para começar.
+# Contributing to OpenFlow
 
-## Por onde começar
+Contributions of code, tests, and documentation are welcome. You can participate in **English or Portuguese**; you do not need a Google account or Flow credits to get started.
 
-- Veja as [primeiras contribuições](https://github.com/codexfast/openflow/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22good%20first%20issue%22) e as [tarefas que precisam de ajuda](https://github.com/codexfast/openflow/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22help%20wanted%22).
-- Comente na issue antes de começar para combinar o escopo e evitar trabalho duplicado.
-- Para uma ideia nova, procure uma [issue existente](https://github.com/codexfast/openflow/issues) antes de abrir outra. Mudanças maiores devem ser discutidas antes da implementação.
-- Melhorias de documentação, exemplos sanitizados e testes com mocks são boas formas de contribuir sem acessar o Google Flow.
+## Where to start
 
-## Preparar o ambiente
+- Check [good first issues](https://github.com/codexfast/openflow/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22good%20first%20issue%22) and [tasks needing help](https://github.com/codexfast/openflow/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22help%20wanted%22).
+- Comment on the issue before starting to align scope and prevent duplicate work.
+- For new ideas, look for an [existing issue](https://github.com/codexfast/openflow/issues) before opening a new one. Larger changes should be discussed before implementation.
+- Documentation improvements, sanitized examples, and mock tests are great ways to contribute without accessing Google Flow.
 
-Requisitos: **Python 3.11 ou superior**, [uv](https://docs.astral.sh/uv/getting-started/installation/), Git e Node.js com suporte a `node --test` para a suíte JavaScript. A instalação das dependências precisa de acesso à rede.
+## Documentation languages
 
-Faça um fork pelo GitHub e clone o seu fork, substituindo `SEU_USUARIO`:
+- English (EN) is the primary project language for documentation and technical references.
+- Keep English and Portuguese documentation updated together when making changes to code, behavior, or architecture.
+- Contributions, issues, and pull requests are welcome in either English or Portuguese.
+- No contributions require a Google account, real Flow credits, or paid generation runs; use mock tests and synthetic data instead.
+
+## Setting up the environment
+
+Requirements: **Python 3.11 or higher**, [uv](https://docs.astral.sh/uv/getting-started/installation/), Git, and Node.js with support for `node --test` for the JavaScript suite. Installing dependencies requires network access.
+
+Fork on GitHub and clone your fork, replacing `YOUR_USERNAME`:
 
 ```bash
-git clone https://github.com/SEU_USUARIO/openflow.git
+git clone https://github.com/YOUR_USERNAME/openflow.git
 ```
 
 ```bash
 cd openflow
 ```
 
-Crie uma branch para a contribuição:
+Create a branch for your contribution:
 
 ```bash
-git switch -c minha-contribuicao
+git switch -c my-contribution
 ```
 
-Instale as dependências de desenvolvimento:
+Install development dependencies:
 
 ```bash
 uv sync --locked --extra browser --extra dev
 ```
 
-Essa preparação não exige Chromium, login Google nem configuração MCP.
+This setup does not require Chromium, a Google login, or MCP configuration.
 
-## Verificações locais
+## Local checks
 
-Execute as verificações pertinentes à mudança, na raiz do repositório:
+Run relevant checks from the repository root:
 
-### Testes Python
+### Python tests
 
 ```bash
 uv run --extra browser --extra dev pytest
@@ -53,89 +62,89 @@ uv run --extra browser --extra dev pytest
 uv run --extra browser --extra dev ruff check .
 ```
 
-### Tipagem
+### Type checking
 
 ```bash
 uv run --extra browser --extra dev mypy
 ```
 
-### Testes JavaScript
+### JavaScript tests
 
 ```bash
 node --test extension/tests/*.test.mjs
 ```
 
-Os testes automatizados usam mocks, dados temporários e transporte ASGI em memória; não precisam de uma sessão autenticada ou de gerações reais. A suíte completa precisa do pacote Playwright incluído no extra `browser`: sem ele, alguns testes são pulados e outros falham por dependência ausente.
+Automated tests use mocks, temporary data, and in-memory ASGI transport; they do not require an authenticated session or real generation runs. The full suite requires the Playwright package included in the `browser` extra: without it, some tests are skipped and others fail due to missing dependencies.
 
-**Instalar o pacote Playwright não exige baixar o Chromium nem fazer login para executar esses mocks.** Mantenha os extras `browser` e `dev` nos comandos Python, pois o uv pode sincronizar o ambiente e remover extras não selecionados.
+**Installing the Playwright package does not require downloading Chromium or logging in to run these mocks.** Keep the `browser` and `dev` extras in Python commands, as uv may synchronize the environment and remove unselected extras.
 
-Para rodar apenas um arquivo de testes, por exemplo:
+To run a single test file, for example:
 
 ```bash
 uv run --extra browser --extra dev pytest tests/test_api.py
 ```
 
-Se uma verificação falhar antes das suas mudanças, registre o comando, a revisão e o erro sanitizado no PR. Compare com a branch-base quando necessário. Não desative testes nem afrouxe lint ou tipagem apenas para obter um resultado verde.
+If a check fails before your changes, document the command, revision, and sanitized error in your PR. Compare against the base branch when needed. Do not disable tests or relax linting or type checking merely to produce a green result.
 
-## Estrutura do projeto
+## Project structure
 
-| Caminho | Responsabilidade |
+| Path | Responsibility |
 | --- | --- |
-| `src/flow_mcp/server.py` | Interface MCP |
-| `src/flow_mcp/api.py` | Interface REST |
-| `src/flow_mcp/service.py` | Operações compartilhadas e downloads |
-| `src/flow_mcp/browser.py` e `managed.py` | Perfil Chromium, sessão e backend gerenciado |
-| `src/flow_mcp/jobs.py` | Persistência dos jobs |
-| `tests/` | Testes Python, mocks e fixtures |
-| `extension/` | Backend legado e runtime JavaScript também usado pelo backend gerenciado |
-| `extension/tests/` | Testes JavaScript |
+| `src/flow_mcp/server.py` | MCP interface |
+| `src/flow_mcp/api.py` | REST interface |
+| `src/flow_mcp/service.py` | Shared operations and downloads |
+| `src/flow_mcp/browser.py` and `managed.py` | Chromium profile, session, and managed backend |
+| `src/flow_mcp/jobs.py` | Job persistence |
+| `tests/` | Python tests, mocks, and fixtures |
+| `extension/` | Legacy backend and JavaScript runtime also used by the managed backend |
+| `extension/tests/` | JavaScript tests |
 
-Não trate `extension/` como código descartável: `operations.mjs` e `hijack_bypass.js` também são incluídos no pacote Python e usados pelo navegador gerenciado.
+Do not treat `extension/` as disposable code: `operations.mjs` and `hijack_bypass.js` are also packaged into the Python package and used by the managed browser.
 
-## Testes reais no Google Flow: opcionais
+## Real tests in Google Flow: optional
 
-Testes reais são diferentes da suíte com mocks. Só os execute quando forem necessários à mudança, com uma conta que você tenha autorização para usar. Consulte [instalação e login](README.md#setup) e [segurança, conta e créditos](README.md#security) antes de instalar Chromium ou executar `openflow setup`.
+Real tests differ from the mock suite. Only run them when necessary for the change, using an account you are authorized to use. See [setup and login](README.md#setup) and [security, account, and credits](README.md#security) before installing Chromium or running `openflow setup`.
 
-- Informe senha e 2FA somente no site Google, nunca em uma issue, prompt ou arquivo do projeto.
-- MCP, REST e setup não devem disputar o mesmo perfil simultaneamente.
-- Operações de geração e upscale podem consumir créditos. Apresente as entradas, obtenha aprovação humana e respeite a sequência de prévia e confirmação.
-- Não reenvie automaticamente jobs com resultado incerto, como `submitted_unverified`.
-- Não automatize operações pagas na CI nem exija que outras pessoas gastem créditos para validar um PR.
+- Enter password and 2FA only on the Google website, never in an issue, prompt, or project file.
+- MCP, REST, and setup must not compete for the same profile simultaneously.
+- Generation and upscale operations may consume credits. Present inputs, obtain human approval, and follow the preview and confirmation sequence.
+- Do not automatically resubmit jobs with uncertain outcomes, such as `submitted_unverified`.
+- Do not automate paid operations in CI or require others to spend credits to validate a PR.
 
-OpenFlow não é uma API oficial do Google. O uso de interfaces internas pode contrariar termos do serviço e causar restrições à conta; mudanças no Flow podem interromper a integração.
+OpenFlow is not an official Google API. Using internal interfaces may violate terms of service and lead to account restrictions; changes in Flow may break the integration.
 
-## Abrir uma issue
+## Opening an issue
 
-Para bugs, inclua:
+For bugs, include:
 
-- revisão ou versão do OpenFlow, sistema operacional e versão do Python;
-- backend usado (gerenciado ou extensão) e interface (MCP ou REST);
-- versões de Playwright/Chromium, quando forem relevantes;
-- passos mínimos de reprodução, resultado esperado e resultado observado;
-- erros e logs sanitizados, sem dados de autenticação.
+- OpenFlow revision or version, operating system, and Python version;
+- backend used (managed or extension) and interface (MCP or REST);
+- Playwright/Chromium versions, when relevant;
+- minimal reproduction steps, expected behavior, and observed behavior;
+- sanitized errors and logs, free of authentication data.
 
-Para sugestões, explique o problema, o caso de uso e as alternativas consideradas. Não é necessário executar uma geração paga para abrir uma issue.
+For feature requests, explain the problem, use case, and considered alternatives. Running a paid generation is not required to open an issue.
 
-## Enviar um pull request
+## Submitting a pull request
 
-1. Mantenha o PR focado em uma tarefa; evite refatorações ou arquivos gerados sem relação com ela.
-2. Siga os nomes, tipos e estilo do código ao redor. Para mudanças de comportamento, adicione ou ajuste testes com mocks e fixtures sintéticas.
-3. Execute as verificações pertinentes e informe quais passaram, falharam ou não foram executadas, com o motivo.
-4. Descreva o que mudou, por quê e como testar. Relacione a issue, quando houver, e atualize a documentação se a interface ou o comportamento mudou.
-5. Revise o diff antes de enviar. Não inclua segredos, perfis de navegador, bancos de jobs ou mídias geradas.
+1. Keep the PR focused on a single task; avoid unrelated refactors or generated files.
+2. Follow surrounding naming conventions, types, and code style. For behavioral changes, add or adjust tests with mocks and synthetic fixtures.
+3. Run relevant checks and report which passed, failed, or were skipped, along with the reason.
+4. Describe what changed, why, and how to test. Reference the issue when applicable, and update documentation if interfaces or behavior changed.
+5. Review the diff before submitting. Do not include secrets, browser profiles, job databases, or generated media.
 
-Confira também problemas de whitespace:
+Check for whitespace issues as well:
 
 ```bash
 git diff --check
 ```
 
-## Privacidade e arquivos locais
+## Privacy and local files
 
-Nunca publique senhas, cookies, tokens, códigos de pareamento, perfis Chromium, bancos de jobs, URLs assinadas ou mídias privadas em issues, PRs, capturas ou logs. Use identificadores sintéticos nos testes.
+Never post passwords, cookies, tokens, pairing codes, Chromium profiles, job databases, signed URLs, or private media in issues, PRs, screenshots, or logs. Use synthetic identifiers in tests.
 
-Salve downloads e saídas de teste em `artifacts/`, já ignorado pelo Git. A pasta `assets/` também está ignorada; não use inclusão forçada para enviar gerações ou banners sem relação com o código.
+Save test outputs and downloads in `artifacts/`, which is already ignored by Git. The `assets/` folder is also ignored; do not force-add unrelated generated assets or banners.
 
-Se encontrar uma possível vulnerabilidade, não publique segredos, dados de terceiros ou detalhes que permitam exploração em uma issue pública. Verifique primeiro se há instruções de comunicação privada na aba **Security** do repositório; este guia não estabelece um canal privado ou prazo de resposta.
+If you discover a potential vulnerability, do not post secrets, third-party data, or exploit details in a public issue. First check for private reporting instructions under the repository's **Security** tab; this guide does not establish a private communication channel or response SLA.
 
-As contribuições devem ser compatíveis com a [licença MIT](LICENSE). Preserve os avisos de licença e não inclua código ou mídia de terceiros sem permissão.
+Contributions must be compatible with the [MIT license](LICENSE). Preserve license notices and do not include third-party code or media without permission.
