@@ -107,7 +107,7 @@ Testes reais são diferentes da suíte com mocks. Só os execute quando forem ne
 
 - Informe senha e 2FA somente no site Google, nunca em uma issue, prompt ou arquivo do projeto.
 - MCP, REST e setup não devem disputar o mesmo perfil simultaneamente.
-- Operações de geração e upscale podem consumir créditos. Apresente as entradas, obtenha aprovação humana e respeite a sequência de prévia e confirmação.
+- A geração de imagens é gratuita atualmente; vídeos consomem créditos. Confira os requisitos de upscale separadamente. Apresente as entradas, obtenha aprovação humana e respeite a sequência de prévia e confirmação.
 - Não reenvie automaticamente jobs com resultado incerto, como `submitted_unverified`.
 - Não automatize operações pagas na CI nem exija que outras pessoas gastem créditos para validar um PR.
 

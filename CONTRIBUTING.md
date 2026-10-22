@@ -107,7 +107,7 @@ Real tests differ from the mock suite. Only run them when necessary for the chan
 
 - Enter password and 2FA only on the Google website, never in an issue, prompt, or project file.
 - MCP, REST, and setup must not compete for the same profile simultaneously.
-- Generation and upscale operations may consume credits. Present inputs, obtain human approval, and follow the preview and confirmation sequence.
+- Image generation is currently free; video generation consumes credits. Check upscale requirements separately. Present inputs, obtain human approval, and follow the preview and confirmation sequence.
 - Do not automatically resubmit jobs with uncertain outcomes, such as `submitted_unverified`.
 - Do not automate paid operations in CI or require others to spend credits to validate a PR.
 

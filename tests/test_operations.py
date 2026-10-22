@@ -382,6 +382,30 @@ async def test_create_project_rejects_changed_scope(tmp_path):
     assert socket.sent.empty()
 
 
+@pytest.mark.parametrize("model", ["nano_banana_pro", "nano_banana_2", "nano_banana_lite"])
+async def test_image_preview_is_free_but_still_requires_confirmation(tmp_path, model):
+    _, session, socket, scope, _, ops = setup(tmp_path)
+    preview = await ops.submit(
+        "generate_image", session.id, scope.project_id,
+        ImageInput(prompt="test", model=model), False, None,
+    )
+    assert preview["may_consume_credits"] is False
+    assert preview["confirmation_required"] is True
+    assert preview["state"] == "preview"
+    assert socket.sent.empty()
+
+
+async def test_video_preview_still_warns_about_credits(tmp_path):
+    _, session, socket, scope, _, ops = setup(tmp_path)
+    preview = await ops.submit(
+        "generate_video", session.id, scope.project_id,
+        VideoInput(prompt="test"), False, None,
+    )
+    assert preview["may_consume_credits"] is True
+    assert preview["confirmation_required"] is True
+    assert socket.sent.empty()
+
+
 async def test_confirmation_is_bound_and_single_use(tmp_path):
     manager, session, socket, scope, jobs, ops = setup(tmp_path)
     value = ImageInput(prompt="test")

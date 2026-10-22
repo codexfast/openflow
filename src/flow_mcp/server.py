@@ -204,7 +204,8 @@ def create_server(
 
     @app.tool(
         description=(
-            "Preview one image; confirmation consumes credits. "
+            "Preview one image; image generation is currently free. "
+            "Human confirmation is still required. "
             "References must be uploaded/generated in this exact scope. "
             "Optional seed fixes the input seed, not guaranteed identical output."
         )
