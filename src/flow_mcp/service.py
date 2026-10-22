@@ -253,7 +253,7 @@ class Operations:
                     **self.public(self.jobs.get(identity)),
                     "preview": stored,
                     "confirmation_required": True,
-                    "may_consume_credits": True,
+                    "may_consume_credits": operation != "generate_image",
                 }
             if preview_id is None:
                 raise ValueError("preview_id_required")

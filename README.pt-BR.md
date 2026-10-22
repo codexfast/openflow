@@ -14,7 +14,7 @@
 
 [Começar](#setup) · [MCP](#mcp) · [API REST](#rest) · [Como funciona](#architecture) · [Contribuir](#contribuição)
 
-Transforme pedidos ao seu agente em imagens e vídeos no Google Flow. **OpenFlow é a ponte:** um projeto open source que conecta agentes e aplicações à sua conta por **MCP** ou **API REST**, usando os recursos e créditos disponíveis no seu plano Google, como o Google AI Pro.
+Transforme pedidos ao seu agente em imagens e vídeos no Google Flow. **OpenFlow é a ponte:** um projeto open source que conecta agentes e aplicações à sua conta por **MCP** ou **API REST**, usando os recursos disponíveis no seu plano Google, como o Google AI Pro. A geração de imagens é gratuita atualmente; vídeos consomem créditos do Flow.
 
 - **Crie com seu agente.** Geração de imagens e vídeos, referências e upscale, conforme o acesso da conta.
 - **Escolha sua interface.** Ferramentas MCP para agentes; REST para aplicações e scripts. Mesmo serviço, duas formas de acesso.
@@ -32,7 +32,7 @@ O login acontece diretamente no Google, em um Chromium dedicado com perfil local
 
 > **Você:** Crie uma imagem cinematográfica de uma cabana nas montanhas ao amanhecer, em 16:9.
 >
-> **Agente:** Preparei uma prévia com esse prompt e o projeto selecionado. O envio pode consumir créditos do Google Flow. Confirma?
+> **Agente:** Preparei uma prévia com esse prompt e o projeto selecionado. A geração de imagens é gratuita atualmente. Confirma?
 >
 > **Você:** Confirmo.
 >
@@ -40,8 +40,34 @@ O login acontece diretamente no Google, em um Chromium dedicado com perfil local
 
 O agente prepara com `confirm=false` e só envia após sua aprovação, repetindo as mesmas entradas com `confirm=true` e `preview_id` igual ao `job_id` da prévia. **Prévia não gera mídia nem substitui autorização humana.** [Ver sequência MCP](#mcp).
 
+<a id="generation-examples"></a>
+## Gerado com Nano Banana 2.1
+
+Resultados reais gerados no Google Flow pelas **ferramentas MCP do OpenFlow**, usando `nano_banana_2` (Nano Banana 2.1). As três imagens têm **1376 × 768**, baixadas na resolução original, sem upscale ou retoque visual. A geração de imagens é gratuita atualmente.
+
+### Texturas em macro
+
+[![Imagem gerada por IA de um besouro esmeralda em macro, com textura na carapaça, pelos finos nas patas e gotas de orvalho sobre uma folha de samambaia.](docs/assets/examples/01-macro.jpg)](docs/assets/examples/01-macro.jpg)
+
+Textura da carapaça, pelos finos, nervuras da folha e refração da luz nas gotas.
+
+### Uma cena cheia de pequenos objetos
+
+[![Imagem gerada por IA de uma oficina de relojoeiro com engrenagens, ferramentas, madeira desgastada e luz da janela sobre telhados de Lisboa.](docs/assets/examples/02-workshop.jpg)](docs/assets/examples/02-workshop.jpg)
+
+Madeira, metal, reboco e uma bancada cheia de peças pequenas. Detalhe aparente não garante precisão mecânica.
+
+### Retrato natural
+
+[![Retrato gerado por IA de uma pessoa idosa fictícia trabalhando com cerâmica, com textura de pele, cabelos grisalhos, mãos e avental de linho.](docs/assets/examples/03-portrait.jpg)](docs/assets/examples/03-portrait.jpg)
+
+Pele, cabelos, mãos e tecido sob luz suave de janela. Pessoa fictícia; não é fotografia de uma pessoa real.
+
+Clique em uma imagem para abrir o arquivo original. [Prompts exatos e detalhes da geração](docs/assets/examples/README.md). São exemplos selecionados, não um benchmark ou garantia de resultados idênticos.
+
 ## Índice
 
+- [Exemplos de geração](#generation-examples)
 - [Requisitos](#requisitos)
 - [Instalação e login](#setup)
 - [Funcionalidades](#features)
@@ -62,7 +88,7 @@ O agente prepara com `confirm=false` e só envia após sua aprovação, repetind
 
 - Python 3.11 ou superior e [uv](https://docs.astral.sh/uv/getting-started/installation/).
 - Conta Google com acesso ao [Flow](https://flow.google.com/), como o oferecido pela assinatura Google AI Pro.
-- Créditos e acesso aos modelos necessários para cada operação, conforme o plano.
+- Acesso aos modelos de cada operação e créditos do Flow para geração de vídeos, conforme o plano.
 - Ambiente com interface gráfica para o login inicial; depois, o navegador pode operar em headless.
 - Cliente compatível com MCP ou aplicação que faça chamadas HTTP à API REST.
 
@@ -138,7 +164,7 @@ flowchart TB
     person["Você · login manual no setup"] -.-> browser
 
     subgraph google["Serviço externo · Google"]
-        flow["Google Flow<br/>Geração de imagens e vídeos<br/>Seu plano e seus créditos"]
+        flow["Google Flow<br/>Geração de imagens e vídeos<br/>Imagens gratuitas atualmente; vídeos usam créditos"]
     end
 
     browser <-->|"HTTPS autenticado · interfaces internas"| flow
@@ -303,7 +329,7 @@ printf '%s\n' "$PREVIEW" | jq
 PREVIEW_ID=$(printf '%s' "$PREVIEW" | jq -er 'select(.state == "preview") | .job_id')
 ```
 
-**3. Somente após conferir a prévia e obter aprovação humana**, execute o bloco separado abaixo. Pode consumir créditos. Não altere `BODY`, não liste projetos nem mude o documento entre a prévia e a confirmação.
+**3. Somente após conferir a prévia e obter aprovação humana**, execute o bloco separado abaixo. A geração de imagens é gratuita atualmente. Não altere `BODY`, não liste projetos nem mude o documento entre a prévia e a confirmação.
 
 ```bash
 CONFIRM=$(printf '%s' "$BODY" | jq --arg id "$PREVIEW_ID" \
@@ -359,9 +385,9 @@ Os schemas completos e endpoints de compatibilidade estão no OpenAPI local. Nã
 <a id="security"></a>
 ## Segurança, conta e créditos
 
-- **Créditos.** OpenFlow não fornece créditos nem altera os limites da assinatura. Acesso, modelos e créditos são definidos pelo Google Flow. Confira custos na interface antes de confirmar; o sistema não garante leitura do saldo.
+- **Créditos.** OpenFlow não fornece créditos nem altera os limites da assinatura. Acesso, modelos e créditos são definidos pelo Google Flow. A geração de imagens é gratuita atualmente; vídeos consomem créditos. Confira os requisitos de upscale separadamente; o sistema não garante leitura do saldo.
 - **Prévia não é autorização.** Agentes e clientes devem apresentar as entradas e obter aprovação humana antes de executar operações confirmadas.
-- **Resultado incerto não deve ser reenviado automaticamente.** Um timeout pode ocorrer depois de a operação ter sido aceita e consumido créditos.
+- **Resultado incerto não deve ser reenviado automaticamente.** Um timeout pode ocorrer depois de a operação ter sido aceita. Operações de vídeo podem já ter consumido créditos.
 - **Proteja o perfil persistente.** Ele contém cookies e dados que permitem acesso à conta. Não compartilhe, versione ou anexe a issues. O navegador usa perfil dedicado e não expõe uma porta TCP de depuração.
 - **HTTP é acesso privilegiado.** A API REST não implementa autenticação HTTP própria, pode ler arquivos locais para upload e gravar downloads. Mantenha o serviço local; para acesso remoto, adicione controle de acesso e transporte seguro.
 - **Nunca exponha credenciais.** Não publique senhas, cookies, tokens, URLs assinadas, bancos de jobs ou segredos legados em prompts, issues ou logs.
@@ -465,7 +491,7 @@ uv run --extra browser --extra dev mypy
 node --test extension/tests/*.test.mjs
 ```
 
-Node.js é necessário apenas para os testes JavaScript. Testes reais de geração podem consumir créditos e exigem autorização.
+Node.js é necessário apenas para os testes JavaScript. Testes reais de geração exigem autorização. A geração de imagens é gratuita atualmente; vídeos consomem créditos.
 
 Salve downloads, mídias geradas e outras saídas locais de teste em `artifacts/`, que já é ignorado pelo Git. Esses arquivos não fazem parte do código-fonte e não devem ser incluídos em commits.
 
