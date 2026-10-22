@@ -395,6 +395,8 @@ On Linux, the default profile resides in `~/.local/share/openflow/browser/profil
 
 A lock prevents two instances from using the same profile. Stop MCP/REST before opening setup or diagnostics. On Linux, the process needs access to the keyring/DBus of the session used during login.
 
+To reuse an existing Chromium profile instead, set `OPENFLOW_PROFILE` to its absolute path. OpenFlow uses that directory in place, without copying cookies, and keeps its lock in `<profile>.lock` beside it. The profile must not be open in another browser, and it must not be a symlink.
+
 ```bash
 # Inspect the saved login and exit; does not generate media.
 uv run --extra browser openflow browser inspect

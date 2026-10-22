@@ -17,6 +17,7 @@ from flow_mcp.browser import (
     locate_chromium,
     native_setup,
     profile_lock,
+    profile_paths,
     run_browser,
 )
 
@@ -26,6 +27,34 @@ PROJECT = "12345678-1234-1234-1234-123456789abc"
 def test_default_directory(monkeypatch, tmp_path):
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
     assert browser_directory() == tmp_path / "openflow" / "browser"
+
+
+def test_default_profile_paths(monkeypatch, tmp_path):
+    monkeypatch.delenv("OPENFLOW_PROFILE", raising=False)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    assert profile_paths() == (
+        tmp_path / "openflow" / "browser" / "profile",
+        tmp_path / "openflow" / "browser" / "profile.lock",
+    )
+
+
+def test_existing_profile_used_in_place(monkeypatch, tmp_path):
+    profile = tmp_path / "other" / "profile"
+    profile.mkdir(parents=True)
+    sentinel = profile / "Local State"
+    sentinel.write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("OPENFLOW_PROFILE", str(profile))
+    assert profile_paths() == (profile, profile.with_name("profile.lock"))
+    # Selecting an existing profile must not copy or relocate its contents.
+    assert sorted(p.name for p in profile.iterdir()) == ["Local State"]
+
+
+def test_relative_profile_rejected(monkeypatch):
+    from flow_mcp.browser import BrowserError, profile_paths
+
+    monkeypatch.setenv("OPENFLOW_PROFILE", "relative/profile")
+    with pytest.raises(BrowserError, match="absolute"):
+        profile_paths()
 
 
 def test_lock_exclusion_and_release(tmp_path):

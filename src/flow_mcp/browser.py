@@ -67,6 +67,23 @@ def browser_directory() -> Path:
     return base / "openflow" / "browser"
 
 
+def profile_paths() -> tuple[Path, Path]:
+    """Return the Chromium profile directory and its lock file.
+
+    OPENFLOW_PROFILE selects an existing profile in place; its cookies are never
+    copied. The lock lives beside the profile so external profiles keep their
+    own single-instance guard.
+    """
+    override = os.environ.get("OPENFLOW_PROFILE")
+    if override:
+        profile = Path(override).expanduser()
+        if not profile.is_absolute():
+            raise BrowserError("OPENFLOW_PROFILE must be an absolute path.")
+        return profile, profile.with_name(profile.name + ".lock")
+    directory = browser_directory()
+    return directory / "profile", directory / "profile.lock"
+
+
 def classify_state(url: str, account_detected: bool, headless: bool) -> BrowserState:
     try:
         parsed = urlsplit(url)
@@ -107,8 +124,19 @@ def profile_lock(directory: Path) -> Iterator[Path]:
         raise BrowserError("Browser profile must not be a symlink.")
     profile.mkdir(exist_ok=True, mode=0o700)
     profile.chmod(0o700)
+    with with_lock(profile, directory / "profile.lock") as locked:
+        yield locked
+
+
+@contextmanager
+def with_lock(profile: Path, lock: Path) -> Iterator[Path]:
+    """Lock an existing profile in place without copying or relinking it."""
+    if profile.is_symlink():
+        raise BrowserError("Browser profile must not be a symlink.")
+    profile.mkdir(parents=True, exist_ok=True, mode=0o700)
+    lock.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
-    fd = os.open(directory / "profile.lock", flags, 0o600)
+    fd = os.open(lock, flags, 0o600)
     try:
         if sys.platform == "win32":
             import msvcrt
@@ -143,7 +171,8 @@ async def browser_session(headless: bool) -> AsyncIterator[BrowserContext]:
             "Browser support is optional. Run: uv sync --extra browser; "
             "uv run --extra browser playwright install chromium --no-shell"
         ) from None
-    with profile_lock(browser_directory()) as profile:
+    profile, lock = profile_paths()
+    with with_lock(profile, lock) as profile:
         async with async_playwright() as playwright:
             try:
                 context = await playwright.chromium.launch_persistent_context(
@@ -284,7 +313,8 @@ async def locate_chromium() -> Path:
 async def native_setup() -> None:
     with _handle_sigterm():
         executable = await locate_chromium()
-        with profile_lock(browser_directory()) as profile:
+        profile, lock = profile_paths()
+        with with_lock(profile, lock) as profile:
             cmd = [
                 str(executable),
                 f"--user-data-dir={profile}",
