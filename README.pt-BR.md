@@ -373,6 +373,8 @@ No Linux, o perfil padrão fica em `~/.local/share/openflow/browser/profile`. Qu
 
 Uma trava impede duas instâncias usando o mesmo perfil. Encerre MCP/REST antes de abrir setup ou diagnóstico. No Linux, o processo precisa acessar o keyring/DBus da sessão usada no login.
 
+Para reutilizar um perfil Chromium existente, defina `OPENFLOW_PROFILE` com o caminho absoluto dele. O OpenFlow usa esse diretório no próprio local, sem copiar cookies, e mantém a trava em `<perfil>.lock` ao lado. O perfil não pode estar aberto em outro navegador nem ser um link simbólico.
+
 ```bash
 # Inspeciona o login salvo e encerra; não gera mídia.
 uv run --extra browser openflow browser inspect
