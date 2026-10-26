@@ -72,6 +72,7 @@ async def test_wrong_project_blocks_runtime_execution():
         "upscale_video",
         "upload",
         "poll",
+        "find_project_media",
     ],
 )
 async def test_dispatch_reuses_https_runtime_and_preserves_outcome(operation):
@@ -106,6 +107,19 @@ async def test_account_switch_invalidates_session():
         await driver.verify_scope(driver.scope())
     assert driver.session.generation > epoch
     assert driver.session.selected is None
+
+
+def test_browser_status_does_not_reuse_account_after_navigation():
+    manager, driver, page = driver_at(A)
+    driver.email = "test@example.com"
+    assert manager.browser_status(driver.session.id)["auth_state"] == "observed"
+    page.url = "https://flow.google.com/project/" + B + "?private=secret#fragment"
+    driver.navigated(page.main_frame)
+    result = manager.browser_status(driver.session.id)
+    assert result["auth_state"] == "unknown"
+    assert result["project_id"] == B
+    assert result["url"] == "https://flow.google.com/project/" + B
+    assert "secret" not in str(result)
 
 
 async def test_same_project_keeps_document_and_no_navigation():

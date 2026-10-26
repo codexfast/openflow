@@ -10,7 +10,7 @@ from flow_mcp.api import create_app
 from flow_mcp.jobs import Jobs
 from flow_mcp.manager import BridgeError, Manager
 from flow_mcp.models import Scope
-from flow_mcp.operations import CatalogInput, CatalogItem, ProjectMediaCatalog
+from flow_mcp.operations import CatalogInput, CatalogItem, ProjectMediaCatalog, ProjectMediaLookup
 from flow_mcp.server import create_server
 
 
@@ -66,6 +66,18 @@ def result(scope, count=7):
         "source": "remote_project_scenes",
         "completeness": "unknown",
         "truncated": False,
+    }
+
+
+def lookup(scope, item=None):
+    return {
+        "scope": scope.model_dump(),
+        "state": "completed",
+        "observed": item is not None,
+        "item": item,
+        "reason": None if item is not None else "not_found_in_observed_catalog",
+        "source": "remote_project_scenes",
+        "completeness": "unknown",
     }
 
 
@@ -210,3 +222,102 @@ async def test_manager_accepts_upsampled_media_not_scene_ids():
     raw["items"][0]["scene_id"] += "_upsampled"
     with pytest.raises(ValidationError):
         ProjectMediaCatalog.model_validate(raw)
+
+
+async def test_manager_finds_catalog_media_beyond_list_limit():
+    manager, session, socket, scope = setup()
+    target = str(uuid4())
+    task = asyncio.create_task(manager.find_project_media(session.id, scope.project_id, target))
+    request = await socket.sent.get()
+    assert request["operation"] == "find_project_media"
+    assert request["params"] == {"scope": scope.model_dump(), "input": {"media_id": target}}
+    raw = lookup(scope, {"media_id": target, "scene_id": str(uuid4()), "kind": "unknown"})
+    reply(manager, session, request, raw)
+    found = await task
+    assert found["observed"] is True
+    assert found["item"]["media_id"] == target
+    assert found["completeness"] == "unknown"
+
+
+async def test_manager_lookup_absence_stays_partial_and_preserves_scope_checks():
+    manager, session, socket, scope = setup()
+    target = str(uuid4())
+    task = asyncio.create_task(manager.find_project_media(session.id, scope.project_id, target))
+    request = await socket.sent.get()
+    reply(manager, session, request, lookup(scope))
+    assert await task == {
+        "connection_id": session.id,
+        "scope": scope.model_dump(),
+        "state": "completed",
+        "observed": False,
+        "item": None,
+        "reason": "not_found_in_observed_catalog",
+        "source": "remote_project_scenes",
+        "completeness": "unknown",
+    }
+    session.selected = None
+    with pytest.raises(BridgeError, match="project_scope_mismatch"):
+        await manager.find_project_media(session.id, scope.project_id, target)
+
+
+@pytest.mark.parametrize("media_id", ["external", str(uuid4()) + "_other", True])
+async def test_manager_lookup_rejects_external_media_ids_before_transport(media_id):
+    manager, session, socket, scope = setup()
+    with pytest.raises(ValidationError):
+        await manager.find_project_media(session.id, scope.project_id, media_id)
+    assert socket.sent.empty()
+
+
+async def test_rest_and_mcp_lookup_contract(monkeypatch):
+    manager, session, _, scope = setup()
+    target = str(uuid4()) + "_upsampled"
+    calls = []
+
+    async def lookup(connection_id, project_id, media_id):
+        calls.append((connection_id, project_id, media_id))
+        return {
+            "connection_id": connection_id,
+            "scope": scope.model_dump(),
+            "state": "completed",
+            "observed": False,
+            "item": None,
+            "reason": "not_found_in_observed_catalog",
+            "source": "remote_project_scenes",
+            "completeness": "unknown",
+        }
+
+    monkeypatch.setattr(manager, "find_project_media", lookup)
+    app = create_app(manager, 19333, Jobs(":memory:"))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        path = f"/projects/{scope.project_id}/media/{target}"
+        response = await client.get(path, params={"connection_id": session.id})
+        assert response.status_code == 200
+        assert response.json()["reason"] == "not_found_in_observed_catalog"
+        assert (await client.get(
+            f"/projects/{scope.project_id}/media/external", params={"connection_id": session.id}
+        )).status_code == 422
+    server = create_server(manager, 19333, Jobs(":memory:"))
+    tools = {tool.name: tool for tool in await server.list_tools()}
+    tool = tools["find_project_media"]
+    assert tool.annotations.readOnlyHint
+    await server.call_tool(
+        "find_project_media",
+        {"connection_id": session.id, "project_id": scope.project_id, "media_id": target},
+    )
+    assert calls == [(session.id, scope.project_id, target), (session.id, scope.project_id, target)]
+
+
+def test_lookup_model_requires_truthful_observation_shape():
+    _, _, _, scope = setup()
+    item = {"media_id": str(uuid4()), "scene_id": str(uuid4())}
+    assert ProjectMediaLookup.model_validate({
+        "scope": scope.model_dump(), "state": "completed", "observed": True, "item": item,
+        "source": "remote_project_scenes", "completeness": "unknown",
+    }).observed
+    with pytest.raises(ValidationError):
+        ProjectMediaLookup.model_validate({
+            "scope": scope.model_dump(), "state": "completed", "observed": False, "item": item,
+            "source": "remote_project_scenes", "completeness": "unknown",
+        })

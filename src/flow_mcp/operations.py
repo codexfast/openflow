@@ -199,3 +199,21 @@ class ProjectMediaCatalog(StrictModel):
         if len({item.scene_id.lower() for item in self.items}) != len(self.items):
             raise ValueError("invalid_catalog_response")
         return self
+
+
+class ProjectMediaLookup(StrictModel):
+    scope: Scope
+    state: Literal["completed"]
+    observed: bool
+    item: CatalogItem | None = None
+    reason: Literal["not_found_in_observed_catalog"] | None = None
+    source: Literal["remote_project_scenes"]
+    completeness: Literal["unknown"]
+
+    @model_validator(mode="after")
+    def observation(self) -> "ProjectMediaLookup":
+        if self.observed != (self.item is not None):
+            raise ValueError("invalid_catalog_response")
+        if self.observed != (self.reason is None):
+            raise ValueError("invalid_catalog_response")
+        return self

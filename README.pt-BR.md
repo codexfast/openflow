@@ -221,9 +221,17 @@ No Windows, use um caminho como `C:\\Projects\\openflow` no JSON.
 5. Repita a chamada com as mesmas entradas, `confirm=true` e **`preview_id` igual ao `job_id` retornado na prévia**.
 6. Consulte `get_job` com `refresh=true`, quando necessário, e use `download` após `completed`.
 
+`status` e `get_job(refresh=false)` retornam cache persistido sem consultar o Google Flow. `get_job(refresh=true)` consulta remotamente somente quando o job tem identificador remoto verificado e pode ser atualizado. As respostas incluem `source: "cache" | "remote"`, `remote_checked` e `last_remote_check_at` após consulta remota bem-sucedida. Falha de consulta mantém estado do job e nunca autoriza gerar novamente.
+
+`recover_job(job_id, connection_id, project_id)` é um caminho separado, somente leitura, para **jobs novos no navegador gerenciado** após reconexão. Exige conta e projeto iguais aos originais, com identidade verificada. Job pendente com handle remoto persistido pode apenas ser consultado; nunca reutiliza prévia ou reenvia geração. Jobs legados sem vínculo de conta e submissões incertas sem handle verificado falham com segurança. Recuperação ainda não autoriza `download` de job com escopo antigo; download normal exige conexão e documento originais.
+
 `create_project` também usa prévia e confirmação; após a criação, o navegador abre o novo projeto. O parâmetro opcional `title` (também no REST `POST /projects` e `/projects/preview`) aceita somente string de 1 a 200 caracteres, não apenas espaços; o padrão é `"OpenFlow project"`. Repita o mesmo título na confirmação.
 
 `generate_image.input.seed` é opcional: `null` ou omitido mantém a escolha aleatória atual; um inteiro estrito entre `1` e `1000000000` fixa o seed enviado ao Flow. Booleanos, strings e números fracionários são rejeitados. Repita o mesmo seed na confirmação; isso não garante imagens idênticas entre mudanças do modelo. Vídeos não aceitam esse parâmetro.
+
+`browser_status(connection_id)` informa estado local do navegador gerenciado sem inspecionar a página: `url` sanitizada contém somente origem e caminho, além de `project_id`, `browser_state` e `auth_state`. Nunca retorna email, cookies, tokens, query parameters ou fragmentos. Modo extensão legado informa dados do navegador como não suportados, sem inventar estado.
+
+`open_project(connection_id, project_id)` abre projeto existente no navegador gerenciado sem enviar job ao Flow. Valida UUID e usa mesmo lock de sessão e checagens de escopo da geração. Navegação muda escopo do documento; prévia preparada em documento anterior não pode ser confirmada. Modo extensão legado retorna erro explícito de não suporte.
 
 `get_account_status` e `refresh_account` verificam a conta visível e consultam o saldo por HTTPS no navegador gerenciado, sem abrir painéis. O retorno informa `credits`, `credits_source` e `credits_freshness`; uma leitura indisponível retorna `null`, nunca um saldo estimado ou anterior.
 
@@ -237,7 +245,14 @@ as mídias referenciadas por cenas do projeto, sem geração nem criação de jo
 O backend gerenciado prepara o projeto sob lock; a extensão exige a aba do projeto
 já selecionada. Ambos revalidam escopo/documento.
 
-A resposta contém `items` com `media_id`, `scene_id`, `kind` (`image`, `video` ou
+MCP `find_project_media(connection_id, project_id, media_id)` e REST
+`GET /projects/{project_id}/media/{media_id}?connection_id=<uuid>` pesquisam o catálogo
+observado e validado, inclusive itens além do limite local de 100 da lista. Encontrado
+retorna `observed: true` e `item`; ausente retorna `observed: false`,
+`reason: "not_found_in_observed_catalog"` e `completeness: "unknown"`.
+Ausência não prova inexistência; busca não concede ownership para download ou upscale.
+
+A resposta da lista contém `items` com `media_id`, `scene_id`, `kind` (`image`, `video` ou
 `unknown`) e `thumbnail_url` opcional, além de `source: "remote_project_scenes"`,
 `completeness: "unknown"` e `truncated`. O tipo usa as estruturas de mídia
 identificadas no retorno do projeto, não os marcadores `CAE`/`CAI` nem o formato da
@@ -302,7 +317,7 @@ A documentação reflete o backend escolhido. No modo padrão `browser`, não h�
 
 ### Exemplo: gerar e baixar uma imagem
 
-Os comandos abaixo usam Bash, `curl` e `jq`. Execute em sequência no mesmo terminal. O exemplo não escolhe um projeto nem confirma uma geração automaticamente.
+Os comandos abaixo usam Bash, `curl` e `jq`. Execute em sequência no mesmo terminal. Escolha e fixe um `project_id` real explicitamente; nunca use o primeiro projeto sem querer. Eles não confirmam geração automaticamente. A sequência equivalente de ferramentas MCP é `list_connections` → `list_projects` → `open_project` → `generate_image(confirm=false)` → aprovação humana → `generate_image(confirm=true, preview_id=<job_id>)` → `get_job(refresh=true)` → `download`. Repita mesmo input e ID do projeto nas duas chamadas de geração.
 
 **1. Consulte a conexão e os projetos:**
 
@@ -370,14 +385,18 @@ O download aceita somente resultados de um job concluído e do escopo correspond
 | `GET` | `/connections` | Conexões disponíveis |
 | `GET` | `/connections/{connection_id}` | Contexto do navegador |
 | `GET` | `/connections/{connection_id}/account` | Evidências de conta; `refresh=true` para atualizar |
+| `GET` | `/connections/{connection_id}/browser-status` | Estado sanitizado do navegador gerenciado; legado informa não suporte |
 | `GET` | `/projects` | Listar projetos com `connection_id` |
+| `POST` | `/projects/{project_id}/open` | Abrir projeto no navegador gerenciado; query `connection_id`; sem envio de job |
 | `POST` | `/projects` | Preparar ou confirmar criação de projeto; `title` opcional |
 | `GET` | `/projects/{project_id}/media` | Catálogo parcial de mídias ligadas a cenas; `connection_id` e `limit` |
+| `GET` | `/projects/{project_id}/media/{media_id}` | Busca no catálogo observado; ausência não prova inexistência |
 | `POST` | `/projects/{project_id}/delete` | Preparar ou confirmar exclusão permanente; somente navegador gerenciado |
 | `POST` | `/images`, `/videos` | Preparar ou confirmar geração |
 | `POST` | `/images/upscale`, `/videos/upscale` | Preparar ou confirmar upscale |
 | `POST` | `/uploads` | Preparar ou confirmar upload PNG/JPEG/WebP, até 8 MiB |
-| `GET` | `/jobs/{job_id}` | Consultar ou atualizar job com conexão/projeto |
+| `GET` | `/jobs/{job_id}` | Ler cache ou consultar remoto com `refresh=true` no escopo original |
+| `GET` | `/jobs/{job_id}/recover` | Recuperação somente leitura com mesma conta/projeto para jobs vinculados |
 | `POST` | `/jobs/{job_id}/download` | Salvar resultado na máquina do servidor |
 
 Os schemas completos e endpoints de compatibilidade estão no OpenAPI local. Não publique respostas com URLs assinadas, dados privados ou informações de conta.
@@ -390,7 +409,7 @@ Os schemas completos e endpoints de compatibilidade estão no OpenAPI local. Nã
 - **Resultado incerto não deve ser reenviado automaticamente.** Um timeout pode ocorrer depois de a operação ter sido aceita. Operações de vídeo podem já ter consumido créditos.
 - **Proteja o perfil persistente.** Ele contém cookies e dados que permitem acesso à conta. Não compartilhe, versione ou anexe a issues. O navegador usa perfil dedicado e não expõe uma porta TCP de depuração.
 - **HTTP é acesso privilegiado.** A API REST não implementa autenticação HTTP própria, pode ler arquivos locais para upload e gravar downloads. Mantenha o serviço local; para acesso remoto, adicione controle de acesso e transporte seguro.
-- **Nunca exponha credenciais.** Não publique senhas, cookies, tokens, URLs assinadas, bancos de jobs ou segredos legados em prompts, issues ou logs.
+- **Nunca exponha credenciais.** Não publique senhas, cookies, tokens, URLs assinadas, bancos de jobs, chaves de identidade (`*.identity-key`) ou segredos legados em prompts, issues ou logs. A chave que vincula a conta fica ao lado do banco de jobs: proteja o diretório e faça backup dos dois juntos. No POSIX, arquivo criado com modo 0600; no Windows, acesso depende da ACL do diretório. Perder a chave torna recuperação indisponível; nunca autoriza gerar de novo.
 - **Respeite termos e direitos.** A licença do código não concede direitos sobre serviços ou resultados de terceiros.
 
 ### Perfil e renovação do login

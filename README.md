@@ -235,9 +235,17 @@ On Windows, use a path like `C:\\Projects\\openflow` in the JSON.
 5. Repeat the call with the exact same inputs, `confirm=true`, and **`preview_id` equal to the `job_id` returned in the preview**.
 6. Query `get_job` with `refresh=true` when needed, and use `download` once `completed`.
 
+`status` and `get_job(refresh=false)` return persisted cache without contacting Google Flow. `get_job(refresh=true)` polls only when job has a verified remote handle and remains eligible for refresh. Responses include `source: "cache" | "remote"`, `remote_checked`, and `last_remote_check_at` after a successful remote check. A query failure leaves job state intact; it never authorizes a new generation.
+
+`recover_job(job_id, connection_id, project_id)` is a separate, read-only path for **new managed-browser jobs** after reconnect. It requires a verified match to the original account and project. For a pending job with a persisted remote handle it only polls; it never reuses a preview or submits generation. Legacy jobs lacking account binding and uncertain submissions without a verified handle fail closed. Recovery does not currently authorize `download` from an old job scope; the regular download still requires its original connection and document.
+
 `create_project` also uses preview and confirmation; after creation, the browser opens the new project. The optional `title` parameter (also in REST `POST /projects` and `/projects/preview`) accepts only a string of 1 to 200 characters, not whitespace only; the default is `"OpenFlow project"`. Repeat the same title during confirmation.
 
 `generate_image.input.seed` is optional: `null` or omitted preserves the current random choice; a strict integer between `1` and `1000000000` sets the fixed seed sent to Flow. Booleans, strings, and fractional numbers are rejected. Repeat the same seed during confirmation; this does not guarantee identical images across model changes. Videos do not accept this parameter.
+
+`browser_status(connection_id)` reports local managed-browser state without page inspection: sanitized `url` contains origin and path only, plus `project_id`, `browser_state`, and `auth_state`. It never returns email, cookies, tokens, query parameters, or fragments. Legacy extension mode reports browser data as unsupported rather than guessing.
+
+`open_project(connection_id, project_id)` opens an existing managed-browser project without sending a Flow job. It validates the UUID and uses the same session lock and scope checks as generation. Navigation changes document scope, so any preview prepared in an earlier document cannot be confirmed. Legacy extension mode returns an explicit unsupported error.
 
 `get_account_status` and `refresh_account` verify the visible account and check the balance via HTTPS in the managed browser without opening panels. The response provides `credits`, `credits_source`, and `credits_freshness`; an unavailable reading returns `null`, never an estimated or previously cached balance.
 
@@ -252,7 +260,14 @@ media referenced by project scenes, without generating media or creating jobs.
 The managed backend prepares the project under a lock; the extension requires the project tab
 already selected. Both revalidate scope and document.
 
-The response contains `items` with `media_id`, `scene_id`, `kind` (`image`, `video`, or
+MCP `find_project_media(connection_id, project_id, media_id)` and REST
+`GET /projects/{project_id}/media/{media_id}?connection_id=<uuid>` search the validated
+observed catalog, including items beyond the local list limit of 100. A match returns
+`observed: true` and `item`; absence returns `observed: false`,
+`reason: "not_found_in_observed_catalog"`, and `completeness: "unknown"`.
+Absence does not prove nonexistence; search grants no download or upscale ownership.
+
+The list response contains `items` with `media_id`, `scene_id`, `kind` (`image`, `video`, or
 `unknown`), and an optional `thumbnail_url`, plus `source: "remote_project_scenes"`,
 `completeness: "unknown"`, and `truncated`. The type uses media structures
 identified in the project response, not `CAE`/`CAI` markers or thumbnail
@@ -321,7 +336,7 @@ The documentation reflects the chosen backend. In default `browser` mode, there 
 <a id="exemplo-gerar-e-baixar-uma-imagem"></a>
 ### Example: generate and download an image
 
-The commands below use Bash, `curl`, and `jq`. Run them sequentially in the same terminal. The example does not select a project or confirm generation automatically.
+The commands below use Bash, `curl`, and `jq`. Run them sequentially in the same terminal. Choose and pin a real `project_id` explicitly; never silently use the first project. They do not confirm generation automatically. The equivalent MCP tool sequence is `list_connections` → `list_projects` → `open_project` → `generate_image(confirm=false)` → human approval → `generate_image(confirm=true, preview_id=<job_id>)` → `get_job(refresh=true)` → `download`. Use the same input and project ID at both generation steps.
 
 **1. Query the connection and projects:**
 
@@ -390,14 +405,18 @@ Download accepts only results from a completed job in the corresponding scope. I
 | `GET` | `/connections` | Available connections |
 | `GET` | `/connections/{connection_id}` | Browser context |
 | `GET` | `/connections/{connection_id}/account` | Account evidence; `refresh=true` to refresh |
+| `GET` | `/connections/{connection_id}/browser-status` | Sanitized managed-browser state; legacy reports unsupported |
 | `GET` | `/projects` | List projects with `connection_id` |
+| `POST` | `/projects/{project_id}/open` | Open managed-browser project; `connection_id` query parameter; no job submission |
 | `POST` | `/projects` | Prepare or confirm project creation; optional `title` |
 | `GET` | `/projects/{project_id}/media` | Partial catalog of media linked to scenes; `connection_id` and `limit` |
+| `GET` | `/projects/{project_id}/media/{media_id}` | Search observed catalog; absence is not proof of nonexistence |
 | `POST` | `/projects/{project_id}/delete` | Prepare or confirm permanent deletion; managed browser only |
 | `POST` | `/images`, `/videos` | Prepare or confirm generation |
 | `POST` | `/images/upscale`, `/videos/upscale` | Prepare or confirm upscale |
 | `POST` | `/uploads` | Prepare or confirm PNG/JPEG/WebP upload, up to 8 MiB |
-| `GET` | `/jobs/{job_id}` | Query or update job with connection/project |
+| `GET` | `/jobs/{job_id}` | Read cache or poll with `refresh=true` in original scope |
+| `GET` | `/jobs/{job_id}/recover` | Read-only recovery for account-bound jobs with same account/project |
 | `POST` | `/jobs/{job_id}/download` | Save result to server host |
 
 Full schemas and compatibility endpoints are in the local OpenAPI docs. Do not publish responses with signed URLs, private data, or account details.
@@ -411,7 +430,7 @@ Full schemas and compatibility endpoints are in the local OpenAPI docs. Do not p
 - **Uncertain results must not be resubmitted automatically.** A timeout may occur after the operation has already been accepted. Video operations may already have consumed credits.
 - **Protect the persistent profile.** It contains cookies and data that grant account access. Do not share, commit, or attach it to issues. The browser uses a dedicated profile and does not expose a remote TCP debugging port.
 - **HTTP is privileged access.** The REST API does not implement its own HTTP authentication, can read local files for upload, and write downloads. Keep the service local; for remote access, add access control and secure transport.
-- **Never expose credentials.** Do not publish passwords, cookies, tokens, signed URLs, job databases, or legacy secrets in prompts, issues, or logs.
+- **Never expose credentials.** Do not publish passwords, cookies, tokens, signed URLs, job databases, identity keys (`*.identity-key`), or legacy secrets in prompts, issues, or logs. The account-binding key lives beside the jobs database: protect the directory and back up both together. POSIX creation uses mode 0600; on Windows, access follows the directory ACL. Losing the key makes account-bound recovery unavailable; it must never trigger regeneration.
 - **Respect terms and rights.** The code license does not grant rights over third-party services or generated outputs.
 
 <a id="perfil-e-renovação-do-login"></a>

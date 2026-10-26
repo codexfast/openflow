@@ -7,6 +7,7 @@ import json
 import re
 import shutil
 import socket
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
@@ -163,6 +164,90 @@ class Operations:
             raise BridgeError("project_scope_mismatch")
         return session, scope.model_copy()
 
+    async def _verify_recovery_account(
+        self, identity: str, session: Session, scope: Scope
+    ) -> None:
+        if not self.jobs.has_account_binding(identity):
+            raise BridgeError("recovery_unavailable_legacy_account_unbound")
+        observation = await self.manager.observe(session, scope)
+        if observation.email is None or not self.jobs.bound_to_account(identity, observation.email):
+            raise BridgeError("recovery_account_mismatch")
+
+    async def recover_job(
+        self, identity: str, connection_id: str, project_id: str
+    ) -> dict[str, object]:
+        """Read a persisted remote handle after reconnect; never submit generation."""
+        job = self.jobs.get(identity)
+        if job["operation"] not in {
+            "generate_image", "generate_video", "upscale_image", "upscale_video", "upload"
+        }:
+            raise BridgeError("recovery_unsupported_operation")
+        if job["scope"].get("project_id") != project_id:
+            raise BridgeError("recovery_project_mismatch")
+        if not self.jobs.has_account_binding(identity):
+            raise BridgeError("recovery_unavailable_legacy_account_unbound")
+        if job["state"] in {"preview", "not_submitted"}:
+            raise BridgeError("recovery_remote_handle_unavailable")
+        if job["state"] == "submitting":
+            raise BridgeError("recovery_outcome_unknown_do_not_retry")
+        original = job["result"]
+        handle = original.get("operation_id") or original.get("media_id")
+        if job["state"] != "completed" and not handle:
+            raise BridgeError("recovery_remote_handle_unavailable")
+        session = self.manager.resolve(connection_id)
+        if not getattr(session.socket, "supports_project_deletion", False):
+            raise BridgeError("recovery_managed_browser_only")
+        async with session.lock:
+            await self.manager.prepare_project(session, project_id)
+            selected = session.selected
+            if selected is None or selected.project_id != project_id:
+                raise BridgeError("project_scope_mismatch")
+            scope = selected.model_copy()
+            epoch = session.generation
+            await self._verify_recovery_account(identity, session, scope)
+            if job["state"] == "completed":
+                return {**self.public(job), "recovery_state": "completed_cached",
+                        "source": "cache", "remote_checked": False}
+            value = PollInput(
+                operation_id=original.get("operation_id"),
+                media_id=original.get("media_id"),
+                kind=("video" if job["operation"] in {"generate_video", "upscale_video"}
+                      else "image"),
+            )
+            raw = await self.manager.request(
+                session, "poll", {"scope": scope.model_dump(), "input": value.model_dump()},
+                deadline_seconds=210,
+            )
+            result = self.outcome(raw)
+            safe = self.safe_diagnostics(raw)
+            if result.scope != scope or session.generation != epoch:
+                raise BridgeError("scope_changed")
+            await self._verify_recovery_account(identity, session, scope)
+            if result.error or result.state in {"not_submitted", "submitted_unverified"}:
+                return {**self.public(job), "recovery_state": "remote_query_failed",
+                        "source": "remote", "remote_checked": True,
+                        "poll_error": result.error or "remote_outcome_unknown",
+                        **({"poll_diagnostics": safe} if safe else {})}
+            self.validate_assets(result)
+            if result.state == "completed" and not (result.assets or result.encoded_image):
+                raise BridgeError("invalid_recovery_result")
+            if result.state == "pending" and not (
+                result.operation_id or result.media_id or handle
+            ):
+                raise BridgeError("invalid_recovery_result")
+            updated = result.model_dump()
+            for field in ("operation_id", "media_id"):
+                updated[field] = updated[field] or original.get(field)
+            if safe:
+                updated["diagnostics"] = safe
+            updated["last_remote_check_at"] = datetime.now(UTC).isoformat()
+            if not session.alive or session.selected != scope:
+                raise BridgeError("scope_changed")
+            if not self.jobs.update_if_state(identity, job["state"], result.state, updated):
+                raise BridgeError("recovery_job_changed")
+            return {**self.public(self.jobs.get(identity)), "recovery_state": "remote_checked",
+                    "source": "remote", "remote_checked": True}
+
     def public(self, job: dict[str, Any]) -> dict[str, object]:
         value = dict(job)
         value.pop("input")
@@ -248,7 +333,13 @@ class Operations:
             if session.selected != scope or not session.alive:
                 raise BridgeError("scope_changed")
             if not confirm:
-                identity = self.jobs.create(connection_id, scope, operation, stored)
+                account_email = None
+                if getattr(session.socket, "supports_project_deletion", False):
+                    observation = await self.manager.observe(session, scope)
+                    account_email = observation.email
+                identity = self.jobs.create(
+                    connection_id, scope, operation, stored, account_email=account_email
+                )
                 return {
                     **self.public(self.jobs.get(identity)),
                     "preview": stored,
@@ -617,18 +708,22 @@ class Operations:
         ) != project_id:
             raise BridgeError("job_scope_mismatch")
         if job["operation"] == "delete_project":
-            return self.public(job)
+            return {**self.public(job), "source": "cache", "remote_checked": False}
         if not refresh or job["state"] in {"preview", "completed", "not_submitted"}:
-            return self.public(job)
+            return {**self.public(job), "source": "cache", "remote_checked": False}
         session, scope = self.binding(connection_id, project_id)
         if job["scope"] != scope.model_dump():
             raise BridgeError("job_document_mismatch_no_rebinding")
-        previous = job["result"]
-        if not previous.get("operation_id") and not previous.get("media_id"):
-            return {**self.public(job), "poll_unavailable": "no_verified_remote_handle"}
         async with session.lock:
-            if session.selected != scope:
+            job = self.jobs.get(identity)
+            if job["state"] in {"preview", "completed", "not_submitted"}:
+                return {**self.public(job), "source": "cache", "remote_checked": False}
+            if session.selected != scope or job["scope"] != scope.model_dump():
                 raise BridgeError("scope_changed")
+            previous = job["result"]
+            if not previous.get("operation_id") and not previous.get("media_id"):
+                return {**self.public(job), "source": "cache", "remote_checked": False,
+                        "poll_unavailable": "no_verified_remote_handle"}
             epoch = session.generation
             value = PollInput(
                 operation_id=previous.get("operation_id"),
@@ -636,24 +731,33 @@ class Operations:
                 kind=("video" if job["operation"] in {"generate_video", "upscale_video"}
                       else "image"),
             )
-            result = Outcome.model_validate(
-                await self.manager.request(
-                    session,
-                    "poll",
-                    {"scope": scope.model_dump(), "input": value.model_dump()},
-                    deadline_seconds=210,
-                )
+            raw = await self.manager.request(
+                session,
+                "poll",
+                {"scope": scope.model_dump(), "input": value.model_dump()},
+                deadline_seconds=210,
             )
+            result = self.outcome(raw)
+            safe = self.safe_diagnostics(raw)
             if result.scope != scope or session.generation != epoch:
                 raise BridgeError("scope_changed")
             self.validate_assets(result)
             if result.error:
-                return {**self.public(job), "poll_error": result.error}
+                return {**self.public(job), "source": "remote", "remote_checked": True,
+                        "last_remote_check_at": datetime.now(UTC).isoformat(),
+                        "poll_error": result.error,
+                        **({"poll_diagnostics": safe} if safe else {})}
             merged = result.model_dump()
             for key in ("operation_id", "media_id"):
                 merged[key] = merged[key] or previous.get(key)
-            self.jobs.update(identity, result.state, merged)
-            return self.public(self.jobs.get(identity))
+            if safe:
+                merged["diagnostics"] = safe
+            checked_at = datetime.now(UTC).isoformat()
+            merged["last_remote_check_at"] = checked_at
+            if not self.jobs.update_if_state(identity, job["state"], result.state, merged):
+                raise BridgeError("job_changed_during_poll")
+            return {**self.public(self.jobs.get(identity)), "source": "remote",
+                    "remote_checked": True, "last_remote_check_at": checked_at}
 
     async def download(
         self,

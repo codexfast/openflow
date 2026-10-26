@@ -471,10 +471,86 @@ async def test_poll_recovery_exact_document_and_project(tmp_path):
     assert request["operation"] == "poll"
     assert request["params"]["input"]["operation_id"] == remote
     reply(manager, session, request, {"scope": scope.model_dump(), "state": "pending"})
-    assert (await task)["result"]["operation_id"] == remote
+    result = await task
+    assert result["result"]["operation_id"] == remote
+    assert result["source"] == "remote" and result["remote_checked"] is True
+    assert result["last_remote_check_at"] == jobs.get(identity)["result"]["last_remote_check_at"]
+    cached = await ops.get(identity, session.id, scope.project_id, False)
+    assert cached["source"] == "cache" and cached["remote_checked"] is False
+    assert cached["result"]["last_remote_check_at"] == result["last_remote_check_at"]
+    assert socket.sent.empty()
     session.selected = scope.model_copy(update={"document_id": "new-document"})
+
     with pytest.raises(BridgeError, match="document_mismatch"):
         await ops.get(identity, session.id, scope.project_id, True)
+
+
+@pytest.mark.parametrize("remote_state,error", [
+    ("pending", None),
+    ("completed", None),
+    ("submitted_unverified", "rpc_rejected"),
+])
+async def test_poll_with_diagnostics_preserves_state_and_error(tmp_path, remote_state, error):
+    manager, session, socket, scope, jobs, ops = setup(tmp_path)
+    identity = jobs.create(session.id, scope, "generate_image", {})
+    remote = str(uuid4())
+    jobs.update(identity, "pending", {"operation_id": remote})
+    task = asyncio.create_task(ops.get(identity, session.id, scope.project_id, True))
+    request = await socket.sent.get()
+    payload = {
+        "scope": scope.model_dump(), "state": remote_state,
+        "diagnostics": {"phase": "parse", "rpc": "ogiZ0b"},
+        "secret_context": "PRIVATE-TOKEN-MUST-NOT-PERSIST",
+    }
+    if remote_state == "completed":
+        payload["assets"] = [{"media_id": str(uuid4()), "kind": "image"}]
+    if error:
+        payload["error"] = error
+    reply(manager, session, request, payload)
+    result = await task
+    assert result.get("poll_error") == error
+    assert result["source"] == "remote" and result["remote_checked"] is True
+    assert result["last_remote_check_at"]
+    if error:
+        assert "last_remote_check_at" not in jobs.get(identity)["result"]
+    else:
+        assert jobs.get(identity)["result"]["last_remote_check_at"] == result[
+            "last_remote_check_at"
+        ]
+    assert "PRIVATE-TOKEN-MUST-NOT-PERSIST" not in json.dumps(result)
+    assert "PRIVATE-TOKEN-MUST-NOT-PERSIST" not in json.dumps(jobs.get(identity))
+    if error:
+        assert result["poll_diagnostics"] == {"rpc": "ogiZ0b", "phase": "parse"}
+        assert jobs.get(identity)["state"] == "pending"
+        assert jobs.get(identity)["result"]["operation_id"] == remote
+    else:
+        assert result["state"] == remote_state
+        assert jobs.get(identity)["result"]["diagnostics"] == {
+            "rpc": "ogiZ0b", "phase": "parse"
+        }
+    assert socket.sent.empty()
+
+
+async def test_concurrent_poll_cannot_regress_completed_job(tmp_path):
+    manager, session, socket, scope, jobs, ops = setup(tmp_path)
+    identity = jobs.create(session.id, scope, "generate_image", {})
+    handle = str(uuid4())
+    jobs.update(identity, "pending", {"operation_id": handle})
+    first = asyncio.create_task(ops.get(identity, session.id, scope.project_id, True))
+    request = await socket.sent.get()
+    second = asyncio.create_task(ops.get(identity, session.id, scope.project_id, True))
+    await asyncio.sleep(0)
+    assert socket.sent.empty()
+    media = str(uuid4())
+    reply(manager, session, request, {
+        "scope": scope.model_dump(), "state": "completed",
+        "assets": [{"media_id": media, "kind": "image"}],
+    })
+    assert (await first)["state"] == "completed"
+    cached = await second
+    assert cached["state"] == "completed" and cached["source"] == "cache"
+    assert jobs.get(identity)["result"]["assets"][0]["media_id"] == media
+    assert socket.sent.empty()
 
 
 async def test_references_require_owned_images(tmp_path):

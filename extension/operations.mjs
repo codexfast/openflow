@@ -115,7 +115,7 @@ export async function flowOperation(operation, params, operationErrors) {
     throw new Error(envelopes ? "rpc_envelope_missing" : "invalid_batch_response");
   };
   const rpc = async (name, inner) => {
-    const allowed = {get_credits: ["nzlxg"], list_projects: ["UpteDb"], list_project_media: ["Zzl0ze"], probe: ["Zzl0ze"], create_project: ["jHPbke"], delete_project: ["UpteDb", "QI2zvc"], poll: ["jwpduf", "Zzl0ze", "as29s"],
+    const allowed = {get_credits: ["nzlxg"], list_projects: ["UpteDb"], list_project_media: ["Zzl0ze"], find_project_media: ["Zzl0ze"], probe: ["Zzl0ze"], create_project: ["jHPbke"], delete_project: ["UpteDb", "QI2zvc"], poll: ["jwpduf", "Zzl0ze", "as29s"],
       upscale_image: ["SPrCad"], upscale_video: ["p0UkFb"],
       upload: ["maseQ"], generate_image: ["ogiZ0b"], generate_video: ["MZZa6b", "nprQif", "eb1hJf", "YhhmEf"]};
     if (!allowed[operation]?.includes(name)) throw new Error("invalid_rpc");
@@ -173,9 +173,12 @@ export async function flowOperation(operation, params, operationErrors) {
       });
       return finish({scope, state: "completed", projects, has_more: !!payload[1], source: "FlowService.GetProjects:UpteDb"});
     }
-    if (operation === "list_project_media") {
+    if (operation === "list_project_media" || operation === "find_project_media") {
       const limit = params.input?.limit;
-      if (!validId(scope.project_id) || !Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new Error("invalid_catalog_input");
+      const requestedMedia = params.input?.media_id;
+      if (!validId(scope.project_id) ||
+          (operation === "list_project_media" && (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)) ||
+          (operation === "find_project_media" && !validMedia(requestedMedia))) throw new Error("invalid_catalog_input");
       const payload = await rpc("Zzl0ze", [`projects/${scope.project_id}`, null, null, null, [1]]);
       // Only captured root/row paths count. Never recursively discover IDs or URLs.
       if (!Array.isArray(payload) || payload.length !== 8 || !Array.isArray(payload[1]) || !Array.isArray(payload[2]) || payload[1].length > 1000 || payload[2].length > 1000) throw new Error("invalid_catalog_response");
@@ -202,12 +205,19 @@ export async function flowOperation(operation, params, operationErrors) {
       }
       const scenes = new Set();
       const items = [];
-      // Validate every row before applying limit, including foreign scenes beyond limit.
+      // Validate every row before applying limit or matching, including foreign scenes beyond limit.
       for (const row of payload[1]) {
         if (!Array.isArray(row) || row.length !== 5 || !validId(row[0]) || !sameProject(row[4]) || !Array.isArray(row[3]) || row[3].length !== 7 || !validMedia(row[3][4]) || scenes.has(row[0].toLowerCase()) || !media.has(row[3][4].toLowerCase())) throw new Error("invalid_catalog_response");
         scenes.add(row[0].toLowerCase());
         // Metadata comes only from the validated, project-bound media record.
         items.push({media_id: row[3][4], scene_id: row[0], ...media.get(row[3][4].toLowerCase())});
+      }
+      if (operation === "find_project_media") {
+        const item = items.find(value => value.media_id.toLowerCase() === requestedMedia.toLowerCase());
+        return item ? {scope, state: "completed", observed: true, item,
+          source: "remote_project_scenes", completeness: "unknown"} :
+          {scope, state: "completed", observed: false, reason: "not_found_in_observed_catalog",
+            source: "remote_project_scenes", completeness: "unknown"};
       }
       return {scope, state: "completed", items: items.slice(0, limit),
         source: "remote_project_scenes", completeness: "unknown", truncated: items.length > limit};
@@ -443,6 +453,6 @@ export async function flowOperation(operation, params, operationErrors) {
   } catch (error) {
     const fallback = phase === "transport" ? (error?.name === "TimeoutError" ? "rpc_timeout" : "rpc_transport_error") : phase === "body" ? "rpc_body_read_error" : "page_operation_failed";
     diagnostics.phase = phase;
-    return finish({scope, state: sent && operation !== "list_project_media" ? "submitted_unverified" : "not_submitted", ...(operation === "probe" ? {rpc_verified: false} : {}), error: isKnownError.test(error?.message) ? error.message : fallback});
+    return finish({scope, state: sent && !["list_project_media", "find_project_media"].includes(operation) ? "submitted_unverified" : "not_submitted", ...(operation === "probe" ? {rpc_verified: false} : {}), error: isKnownError.test(error?.message) ? error.message : fallback});
   }
 }

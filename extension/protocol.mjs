@@ -86,6 +86,9 @@ export function validRequest(message) {
   if (message.operation === "list_project_media") return exact(p, ["scope", "input"]) &&
     validScope(p.scope) && p.scope.origin === "https://flow.google.com" && identifier(p.scope.project_id) &&
     exact(p.input, ["limit"]) && Number.isSafeInteger(p.input.limit) && p.input.limit >= 1 && p.input.limit <= 100;
+  if (message.operation === "find_project_media") return exact(p, ["scope", "input"]) &&
+    validScope(p.scope) && p.scope.origin === "https://flow.google.com" && identifier(p.scope.project_id) &&
+    exact(p.input, ["media_id"]) && mediaIdentifier(p.input.media_id);
   if (message.operation === "probe") return exact(p, ["scope", "input", "diagnostics"]) &&
     validScope(p.scope) && p.scope.origin === "https://flow.google.com" && p.diagnostics === true &&
     exact(p.input, ["project_id"]) && identifier(p.input.project_id);
