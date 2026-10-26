@@ -7,8 +7,9 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
+    from flow_mcp.operations import ProjectMediaCatalog
     from flow_mcp.pairing import Pairings
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from pydantic import ValidationError
 
@@ -217,6 +218,51 @@ class Manager:
         if prepare is not None:
             await prepare(project_id)
 
+    async def open_project(self, connection_id: str, project_id: str) -> dict[str, object]:
+        """Open one project without dispatching a Flow operation."""
+        session = self.resolve(connection_id)
+        if not getattr(session.socket, "supports_project_deletion", False):
+            raise BridgeError("open_project_unsupported_legacy_extension")
+        try:
+            project_id = str(UUID(project_id))
+        except (TypeError, ValueError, AttributeError):
+            raise BridgeError("invalid_project_id") from None
+        async with session.lock:
+            await self.prepare_project(session, project_id)
+            scope = session.selected
+            if (
+                scope is None
+                or scope.origin != "https://flow.google.com"
+                or scope.project_id is None
+                or scope.project_id.lower() != project_id.lower()
+            ):
+                raise BridgeError("project_scope_mismatch")
+            epoch = session.generation
+            await self.verify_scope(session, scope)
+            if epoch != session.generation or session.selected != scope or not session.alive:
+                raise BridgeError("scope_changed")
+            return {"connection_id": session.id, "selected": scope.model_dump()}
+
+    def browser_status(self, connection_id: str) -> dict[str, object]:
+        """Return safe local browser state without inspecting page/account data."""
+        session = self.resolve(connection_id)
+        if not getattr(session.socket, "supports_project_deletion", False):
+            return {
+                "connection_id": session.id,
+                "backend": "extension",
+                "browser_state": "unsupported",
+                "auth_state": "unknown",
+                "project_id": None,
+                "url": None,
+            }
+        status = getattr(session.socket, "browser_status", None)
+        if status is None:
+            raise BridgeError("browser_status_unavailable")
+        result = status()
+        if not isinstance(result, dict):
+            raise BridgeError("invalid_browser_status")
+        return {"connection_id": session.id, "backend": "browser", **result}
+
     async def verify_scope(self, session: Session, scope: Scope) -> None:
         verify = getattr(session.socket, "verify_scope", None)
         if verify is not None:
@@ -254,6 +300,49 @@ class Manager:
     async def list_project_media(
         self, connection_id: str, project_id: str, limit: int = 100
     ) -> dict[str, object]:
+        catalog, session = await self._read_project_media_catalog(connection_id, project_id, limit)
+        return {"connection_id": session.id, **catalog.model_dump()}
+
+    async def find_project_media(
+        self, connection_id: str, project_id: str, media_id: str
+    ) -> dict[str, object]:
+        from pydantic import TypeAdapter
+
+        from flow_mcp.operations import Identifier, MediaIdentifier, ProjectMediaLookup
+
+        project_id = TypeAdapter(Identifier).validate_python(project_id)
+        media_id = TypeAdapter(MediaIdentifier).validate_python(media_id)
+        session = self.resolve(connection_id)
+        async with session.lock:
+            await self.prepare_project(session, project_id)
+            scope = session.selected
+            if (scope is None or scope.origin != "https://flow.google.com"
+                    or scope.project_id is None
+                    or scope.project_id.lower() != project_id.lower()):
+                raise BridgeError("project_scope_mismatch")
+            epoch = session.generation
+            await self.verify_scope(session, scope)
+            raw = await self.request(
+                session, "find_project_media",
+                {"scope": scope.model_dump(), "input": {"media_id": media_id}},
+                deadline_seconds=190,
+            )
+            try:
+                lookup = ProjectMediaLookup.model_validate(raw)
+            except ValidationError:
+                raise BridgeError("invalid_catalog_response") from None
+            if epoch != session.generation or session.selected != scope or lookup.scope != scope:
+                self.invalidate(session)
+                raise BridgeError("scope_changed")
+            await self.verify_scope(session, scope)
+            if epoch != session.generation or session.selected != scope:
+                self.invalidate(session)
+                raise BridgeError("scope_changed")
+            return {"connection_id": session.id, **lookup.model_dump()}
+
+    async def _read_project_media_catalog(
+        self, connection_id: str, project_id: str, limit: int
+    ) -> tuple["ProjectMediaCatalog", Session]:
         from pydantic import TypeAdapter
 
         from flow_mcp.operations import CatalogInput, Identifier, ProjectMediaCatalog
@@ -288,7 +377,7 @@ class Manager:
                 raise BridgeError("scope_changed")
             if len(catalog.items) > input.limit:
                 raise BridgeError("invalid_catalog_response")
-            return {"connection_id": session.id, **catalog.model_dump()}
+            return catalog, session
 
     async def select(self, connection_id: str | None, tab_id: int) -> dict[str, object]:
         session = self.resolve(connection_id)

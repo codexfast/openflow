@@ -114,6 +114,26 @@ async def test_serial_lock_and_no_duplicate_submission():
     await second
 
 
+async def test_open_project_is_explicitly_unsupported_for_legacy_extension():
+    manager = Manager(SECRET)
+    session, _ = pair(manager)
+    with pytest.raises(BridgeError, match="open_project_unsupported_legacy_extension"):
+        await manager.open_project(session.id, str(uuid4()))
+
+
+def test_legacy_browser_status_does_not_invent_browser_data():
+    manager = Manager(SECRET)
+    session, _ = pair(manager)
+    assert manager.browser_status(session.id) == {
+        "connection_id": session.id,
+        "backend": "extension",
+        "browser_state": "unsupported",
+        "auth_state": "unknown",
+        "project_id": None,
+        "url": None,
+    }
+
+
 async def test_select_scope_and_invalidation():
     manager = Manager(SECRET)
     session, socket = pair(manager)

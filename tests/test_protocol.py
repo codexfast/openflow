@@ -75,6 +75,9 @@ async def test_mcp_stdio_with_simulated_extension(tmp_path):
                 "delete_project",
                 "list_projects",
                 "list_project_media",
+                "find_project_media",
+                "open_project",
+                "browser_status",
                 "disconnect_connection",
                 "list_pairing_requests",
                 "approve_connection",
@@ -85,6 +88,7 @@ async def test_mcp_stdio_with_simulated_extension(tmp_path):
                 "upscale_image",
                 "upscale_video",
                 "get_job",
+                "recover_job",
                 "status",
                 "download",
             }

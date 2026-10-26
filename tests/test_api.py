@@ -7,6 +7,7 @@ import pytest
 from flow_mcp.api import create_app
 from flow_mcp.jobs import Jobs
 from flow_mcp.manager import Manager
+from flow_mcp.server import create_server
 
 
 def make_client(backend="extension"):
@@ -78,7 +79,8 @@ async def test_openapi_matches_backend(backend):
             assert (path in spec["paths"]) == (backend == "extension")
         for path in (
             "/health", "/connections", "/connections/{connection_id}",
-            "/connections/{connection_id}/account", "/projects", "/images", "/videos",
+            "/connections/{connection_id}/account", "/connections/{connection_id}/browser-status",
+            "/projects", "/projects/{project_id}/open", "/images", "/videos",
         ):
             assert path in spec["paths"]
         assert f"Backend: {backend}" in spec["info"]["description"]
@@ -94,6 +96,58 @@ async def test_legacy_routes_remain_available(backend):
         assert response.status_code == 409
         response = await client.post("/connections/nope/select", json={"tab_id": 1})
         assert response.status_code == 409
+
+
+async def test_rest_browser_status_and_open_project_legacy_errors_are_explicit():
+    from test_manager import pair
+
+    manager = Manager("s" * 64)
+    session, _ = pair(manager)
+    project_id = str(uuid4())
+    app = create_app(manager, 19333, Jobs(":memory:"), backend="extension")
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        status = await client.get(f"/connections/{session.id}/browser-status")
+        opened = await client.post(
+            f"/projects/{project_id}/open", params={"connection_id": session.id}
+        )
+    assert status.status_code == 200
+    assert status.json() == {
+        "connection_id": session.id,
+        "backend": "extension",
+        "browser_state": "unsupported",
+        "auth_state": "unknown",
+        "project_id": None,
+        "url": None,
+    }
+    assert opened.status_code == 409
+    assert opened.json()["detail"] == "open_project_unsupported_legacy_extension"
+
+
+async def test_rest_open_project_rejects_invalid_uuid_before_navigation():
+    connection_id = str(uuid4())
+    async with make_client("browser") as client:
+        opened = await client.post(
+            "/projects/not-a-uuid/open", params={"connection_id": connection_id}
+        )
+    assert opened.status_code == 422
+
+
+async def test_mcp_explicit_tools_include_legacy_safe_status():
+    from test_manager import pair
+
+    manager = Manager("s" * 64)
+    session, _ = pair(manager)
+    server = create_server(manager, 19333, Jobs(":memory:"), backend="extension")
+    tools = {tool.name: tool for tool in await server.list_tools()}
+    assert {"open_project", "browser_status"}.issubset(tools)
+    result = await server.call_tool("browser_status", {"connection_id": session.id})
+    assert "unsupported" in str(result)
+    rejected = await server.call_tool(
+        "open_project", {"connection_id": session.id, "project_id": str(uuid4())}
+    )
+    assert "open_project_unsupported_legacy_extension" in str(rejected)
 
 
 async def test_invalid_inputs_are_400_not_500():

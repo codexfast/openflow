@@ -250,7 +250,7 @@ async function extensionFingerprint() {
 }
 
 async function dispatch(message) {
-  if (message.operation === "capabilities") return {build: "operational-bench-2", source_digest: await extensionFingerprint(), operations: ["list_project_media", "probe", "reload_extension", "reload_tab", "create_project", "upload", "generate_image", "generate_video", "poll", "upscale_image", "upscale_video"], model_availability: "configured_not_live_verified", upscale: "experimental", video_4k: "unsupported"};
+  if (message.operation === "capabilities") return {build: "operational-bench-2", source_digest: await extensionFingerprint(), operations: ["list_project_media", "find_project_media", "probe", "reload_extension", "reload_tab", "create_project", "upload", "generate_image", "generate_video", "poll", "upscale_image", "upscale_video"], model_availability: "configured_not_live_verified", upscale: "experimental", video_4k: "unsupported"};
   if (message.operation === "reload_extension") {
     setTimeout(() => chrome.runtime.reload(), 250);
     return {reloading: true};

@@ -17,6 +17,8 @@ function fixture(count = 7) {
   return [null, scenes, media, [], null, null, null, []];
 }
 async function run(payload, limit = 100, options = {}) {
+  const operation = options.operation || "list_project_media";
+  const input = operation === "find_project_media" ? {media_id: options.media_id} : {limit};
   const calls = [];
   const context = vm.createContext({
     URL, URLSearchParams, TextDecoder, AbortSignal,
@@ -29,7 +31,7 @@ async function run(payload, limit = 100, options = {}) {
       return new Response(")]}'\n" + JSON.stringify([["wrb.fr", "Zzl0ze", JSON.stringify(payload)]]));
     }
   });
-  const result = await vm.runInContext(`(${flowOperation.toString()})`, context)("list_project_media", {scope, input: {limit}, diagnostics: true});
+  const result = await vm.runInContext(`(${flowOperation.toString()})`, context)(operation, {scope, input, diagnostics: true});
   return {result: JSON.parse(JSON.stringify(result)), calls};
 }
 
@@ -95,6 +97,44 @@ test("protocol allows only exact catalog input and scoped project", () => {
   for (const limit of [0, 101, true, "1"]) assert.equal(validRequest({...request, params: {scope, input: {limit}}}), false);
   assert.equal(validRequest({...request, params: {scope, input: {limit: 1, cursor: "x"}}}), false);
   assert.equal(validRequest({...request, params: {scope: {...scope, project_id: null}, input: {limit: 1}}}), false);
+  const find = {type: "request", id: id(5), operation: "find_project_media", params: {scope, input: {media_id: id(200)}}};
+  assert.equal(validRequest(find), true);
+  assert.equal(validRequest({...find, params: {scope, input: {media_id: id(200) + "_upsampled"}}}), true);
+  assert.equal(validRequest({...find, params: {scope, input: {media_id: "external-id"}}}), false);
+  assert.equal(validRequest({...find, params: {scope, input: {media_id: id(200), limit: 1}}}), false);
+});
+
+test("directed lookup validates all rows and finds media beyond list limit", async () => {
+  const data = fixture(101);
+  const target = data[1][100][3][4];
+  const {result, calls} = await run(data, 100, {operation: "find_project_media", media_id: target});
+  assert.deepEqual(calls, [{rpc: "Zzl0ze", inner: [`projects/${project}`, null, null, null, [1]]}]);
+  assert.equal(result.observed, true);
+  assert.equal(result.item.media_id, target);
+  assert.equal(result.completeness, "unknown");
+  assert.equal(result.reason, undefined);
+});
+
+test("directed lookup absence stays partial and validates foreign rows", async () => {
+  const data = fixture(101);
+  const {result} = await run(data, 100, {operation: "find_project_media", media_id: id(999)});
+  assert.deepEqual(result, {scope, state: "completed", observed: false,
+    reason: "not_found_in_observed_catalog", source: "remote_project_scenes", completeness: "unknown"});
+  data[1][100][4] = id(2);
+  const failed = await run(data, 100, {operation: "find_project_media", media_id: id(999)});
+  assert.equal(failed.result.error, "invalid_catalog_response");
+});
+
+test("directed lookup accepts upsampled ID and refuses duplicate catalog media", async () => {
+  const data = fixture(2);
+  data[1][1][3][4] += "_upsampled";
+  data[2][1][0] += "_upsampled";
+  const found = await run(data, 100, {operation: "find_project_media", media_id: data[2][1][0]});
+  assert.equal(found.result.observed, true);
+  assert.equal(found.result.item.media_id, data[2][1][0]);
+  data[2].push(structuredClone(data[2][0]));
+  const failed = await run(data, 100, {operation: "find_project_media", media_id: data[2][0][0]});
+  assert.equal(failed.result.error, "invalid_catalog_response");
 });
 
 

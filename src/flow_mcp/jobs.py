@@ -1,4 +1,8 @@
+import hashlib
+import hmac
 import json
+import os
+import secrets
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
@@ -11,6 +15,7 @@ from flow_mcp.models import Scope
 class Jobs:
     def __init__(self, path: Path | None = None) -> None:
         self.db = sqlite3.connect(str(path) if path else ":memory:")
+        self._key = self._load_key(path)
         self.db.execute(
             "CREATE TABLE IF NOT EXISTS jobs "
             "(id TEXT PRIMARY KEY, connection TEXT NOT NULL, scope TEXT NOT NULL, "
@@ -18,12 +23,68 @@ class Jobs:
             "result TEXT NOT NULL, updated TEXT NOT NULL)"
         )
         self.db.execute("UPDATE jobs SET state='submitted_unverified' WHERE state='submitting'")
+        columns = {row[1] for row in self.db.execute("PRAGMA table_info(jobs)")}
+        if "account_binding" not in columns:
+            self.db.execute("ALTER TABLE jobs ADD COLUMN account_binding TEXT")
         self.db.commit()
 
-    def create(self, connection: str, scope: Scope, operation: str, value: dict[str, Any]) -> str:
+    @staticmethod
+    def _load_key(path: Path | None) -> bytes:
+        if path is None or str(path) == ":memory:":
+            return secrets.token_bytes(32)
+        key_path = path.with_name(path.name + ".identity-key")
+        if key_path.is_symlink():
+            raise ValueError("identity_key_must_not_be_symlink")
+        try:
+            # POSIX mode 0600; Windows uses the containing directory's ACL.
+            fd = os.open(
+                key_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
+                0o600,
+            )
+        except FileExistsError:
+            if key_path.is_symlink():
+                raise ValueError("identity_key_must_not_be_symlink") from None
+            with key_path.open("rb") as stream:
+                key = stream.read(33)
+            if len(key) != 32:
+                raise ValueError("invalid_identity_key") from None
+            return key
+        try:
+            key = secrets.token_bytes(32)
+            with os.fdopen(fd, "wb") as stream:
+                stream.write(key)
+            return key
+        except BaseException:
+            key_path.unlink(missing_ok=True)
+            raise
+
+    def account_binding(self, email: str) -> str:
+        return hmac.new(self._key, email.lower().encode(), hashlib.sha256).hexdigest()
+
+    def bound_to_account(self, identity: str, email: str) -> bool:
+        row = self.db.execute(
+            "SELECT account_binding FROM jobs WHERE id=?", (identity,)
+        ).fetchone()
+        if row is None:
+            raise ValueError("job_not_found")
+        return isinstance(row[0], str) and hmac.compare_digest(
+            row[0], self.account_binding(email)
+        )
+
+    def has_account_binding(self, identity: str) -> bool:
+        row = self.db.execute(
+            "SELECT account_binding FROM jobs WHERE id=?", (identity,)
+        ).fetchone()
+        if row is None:
+            raise ValueError("job_not_found")
+        return isinstance(row[0], str)
+
+    def create(self, connection: str, scope: Scope, operation: str, value: dict[str, Any],
+               account_email: str | None = None) -> str:
         identity = str(uuid4())
         self.db.execute(
-            "INSERT INTO jobs VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO jobs (id, connection, scope, operation, input, state, result, "
+            "updated, account_binding) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 identity,
                 connection,
@@ -33,13 +94,17 @@ class Jobs:
                 "preview",
                 "{}",
                 datetime.now(UTC).isoformat(),
+                self.account_binding(account_email) if account_email else None,
             ),
         )
         self.db.commit()
         return identity
 
     def get(self, identity: str) -> dict[str, Any]:
-        row = self.db.execute("SELECT * FROM jobs WHERE id=?", (identity,)).fetchone()
+        row = self.db.execute(
+            "SELECT id, connection, scope, operation, input, state, result, updated "
+            "FROM jobs WHERE id=?", (identity,)
+        ).fetchone()
         if row is None:
             raise ValueError("job_not_found")
         return dict(
@@ -74,6 +139,16 @@ class Jobs:
             (state, json.dumps(result), datetime.now(UTC).isoformat(), identity),
         )
         self.db.commit()
+
+    def update_if_state(
+        self, identity: str, expected: str, state: str, result: dict[str, Any]
+    ) -> bool:
+        changed = self.db.execute(
+            "UPDATE jobs SET state=?, result=?, updated=? WHERE id=? AND state=?",
+            (state, json.dumps(result), datetime.now(UTC).isoformat(), identity, expected),
+        ).rowcount
+        self.db.commit()
+        return changed == 1
 
     def owns(self, connection: str, scope: Scope, media: str, kind: str = "image") -> bool:
         rows = self.db.execute(

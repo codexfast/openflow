@@ -16,6 +16,7 @@ from flow_mcp.operations import (
     Identifier,
     ImageInput,
     ImageUpscaleInput,
+    MediaIdentifier,
     ProjectTitle,
     UploadInput,
     VideoInput,
@@ -103,10 +104,24 @@ def create_app(
         except Exception as error:
             raise fail(error) from None
 
+    @app.get("/connections/{connection_id}/browser-status")
+    async def browser_status(connection_id: Identifier) -> dict[str, object]:
+        try:
+            return manager.browser_status(connection_id)
+        except Exception as error:
+            raise fail(error) from None
+
     @app.get("/connections/{connection_id}/account")
     async def account(connection_id: str, refresh: bool = False) -> dict[str, object]:
         try:
             return await manager.account(connection_id, refresh)
+        except Exception as error:
+            raise fail(error) from None
+
+    @app.post("/projects/{project_id}/open")
+    async def open_project(project_id: Identifier, connection_id: Identifier) -> dict[str, object]:
+        try:
+            return await manager.open_project(connection_id, project_id)
         except Exception as error:
             raise fail(error) from None
 
@@ -124,6 +139,15 @@ def create_app(
     ) -> dict[str, object]:
         try:
             return await manager.list_project_media(connection_id, project_id, limit)
+        except Exception as error:
+            raise fail(error) from None
+
+    @app.get("/projects/{project_id}/media/{media_id}")
+    async def find_project_media(
+        project_id: Identifier, media_id: MediaIdentifier, connection_id: Identifier
+    ) -> dict[str, object]:
+        try:
+            return await manager.find_project_media(connection_id, project_id, media_id)
         except Exception as error:
             raise fail(error) from None
 
@@ -247,6 +271,15 @@ def create_app(
     ) -> dict[str, object]:
         try:
             return await operations.get(job_id, connection_id, project_id, refresh)
+        except Exception as error:
+            raise fail(error) from None
+
+    @app.get("/jobs/{job_id}/recover")
+    async def recover_job(
+        job_id: Identifier, connection_id: Identifier, project_id: Identifier
+    ) -> dict[str, object]:
+        try:
+            return await operations.recover_job(job_id, connection_id, project_id)
         except Exception as error:
             raise fail(error) from None
 

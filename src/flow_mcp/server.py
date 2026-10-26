@@ -6,8 +6,10 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
+import uvicorn
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
+from starlette.applications import Starlette
 
 from flow_mcp.bridge import load_secret
 from flow_mcp.jobs import Jobs
@@ -19,6 +21,7 @@ from flow_mcp.operations import (
     Identifier,
     ImageInput,
     ImageUpscaleInput,
+    MediaIdentifier,
     ProjectTitle,
     VideoInput,
     VideoUpscaleInput,
@@ -39,8 +42,13 @@ def create_server(
 
     @asynccontextmanager
     async def lifespan(app: FastMCP[None]) -> AsyncIterator[None]:
-        async with backend_lifespan(manager, port, backend):
+        # Streamable HTTP owns the backend in the ASGI lifespan instead. Its
+        # FastMCP lifespan runs once per client session, not once per service.
+        if getattr(app, "_openflow_http_backend", False):
             yield None
+        else:
+            async with backend_lifespan(manager, port, backend):
+                yield None
 
     app: FastMCP[None] = FastMCP(
         "openflow",
@@ -132,6 +140,29 @@ def create_server(
         return await safe(manager.select(connection_id, tab_id))
 
     @app.tool(
+        description=(
+            "Open a Flow project in the managed browser without submitting a job. "
+            "Navigation invalidates previews tied to another document; "
+            "legacy extension unsupported."
+        )
+    )
+    async def open_project(connection_id: Identifier, project_id: Identifier) -> dict[str, object]:
+        return await safe(manager.open_project(connection_id, project_id))
+
+    @app.tool(
+        description=(
+            "Read sanitized browser status, selected project and path without email, "
+            "cookies, tokens, query or fragment. Legacy extension reports unsupported."
+        ),
+        annotations=readonly,
+    )
+    async def browser_status(connection_id: Identifier) -> dict[str, object]:
+        async def work() -> dict[str, object]:
+            return manager.browser_status(connection_id)
+
+        return await safe(work())
+
+    @app.tool(
         description="Read visible account evidence and, in managed browser mode, current credits "
         "by HTTPS without opening panels. Unavailable balances remain unknown.",
         annotations=readonly,
@@ -159,6 +190,16 @@ def create_server(
         connection_id: Identifier, project_id: Identifier, limit: CatalogLimit = 100
     ) -> dict[str, object]:
         return await safe(manager.list_project_media(connection_id, project_id, limit))
+
+    @app.tool(
+        description="Find a media_id in the validated observed project scenes. "
+        "An absent item may exist outside this incomplete catalog; no ownership grant.",
+        annotations=readonly,
+    )
+    async def find_project_media(
+        connection_id: Identifier, project_id: Identifier, media_id: MediaIdentifier
+    ) -> dict[str, object]:
+        return await safe(manager.find_project_media(connection_id, project_id, media_id))
 
     @app.tool(description="List projects by HTTPS; managed browser returns to Flow home.")
     async def list_projects(connection_id: Identifier) -> dict[str, object]:
@@ -344,6 +385,20 @@ def create_server(
         return await safe(operations.get(job_id, connection_id, project_id, refresh))
 
     @app.tool(
+        description=(
+            "Read-only recovery after reconnect for a new account-bound job with a verified "
+            "remote handle. Requires the same observed account and project; legacy jobs "
+            "without account evidence fail closed. It may navigate to the project; "
+            "never resubmits generation."
+        ),
+        annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=True),
+    )
+    async def recover_job(
+        job_id: Identifier, connection_id: Identifier, project_id: Identifier
+    ) -> dict[str, object]:
+        return await safe(operations.recover_job(job_id, connection_id, project_id))
+
+    @app.tool(
         description="Read cached persistent job status without a browser request.",
         annotations=readonly,
     )
@@ -380,6 +435,23 @@ def create_server(
     return app
 
 
+def streamable_http_service(app: FastMCP[None], manager: Manager, port: int,
+                            backend: str) -> Starlette:
+    """Own a single browser for the lifetime of the HTTP service."""
+    app._openflow_http_backend = True  # type: ignore[attr-defined]
+    service = app.streamable_http_app()
+    manager_lifespan = service.router.lifespan_context
+
+    @asynccontextmanager
+    async def lifespan(_app: Starlette) -> AsyncIterator[None]:
+        async with backend_lifespan(manager, port, backend):
+            async with manager_lifespan(service):
+                yield None
+
+    service.router.lifespan_context = lifespan
+    return service
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="openflow")
     parser.add_argument("--backend", choices=["browser", "extension"], default="browser")
@@ -404,15 +476,22 @@ def main() -> None:
             secret = load_secret(args.pairing_dir)
         if not args.init_pairing:
             args.pairing_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+            manager = Manager(secret, pairings=Pairings(args.pairing_dir))
             app = create_server(
-                Manager(secret, pairings=Pairings(args.pairing_dir)),
+                manager,
                 args.port,
                 Jobs(args.pairing_dir / "jobs.sqlite3"),
                 host=args.host,
                 mcp_port=args.mcp_port,
                 backend=args.backend,
             )
-            app.run(transport=args.transport)
+            if args.transport == "streamable-http":
+                uvicorn.run(
+                    streamable_http_service(app, manager, args.port, args.backend),
+                    host=args.host, port=args.mcp_port, log_level="critical",
+                )
+            else:
+                app.run(transport="stdio")
     except Exception:
         parser.exit(
             1,

@@ -110,6 +110,41 @@ class ManagedBrowser:
             document_id=self.document_id,
         )
 
+    def browser_status(self) -> dict[str, object]:
+        """Local state only. Never query browser storage or return account evidence."""
+        if self.closed:
+            return {
+                "browser_state": "closed",
+                "auth_state": "unknown",
+                "project_id": None,
+                "url": None,
+            }
+        try:
+            current_url = str(self.page.url)
+            parsed = urlsplit(current_url)
+            state = classify_state(current_url, self.email is not None, True)
+        except (TypeError, ValueError):
+            return {
+                "browser_state": "unknown",
+                "auth_state": "unknown",
+                "project_id": None,
+                "url": None,
+            }
+        # Deliberately omit userinfo, port, query, and fragment.
+        url = f"{state.flow_origin}{parsed.path}" if state.flow_origin else None
+        return {
+            "browser_state": "ready" if state.flow_origin else state.state,
+            "auth_state": "observed" if (
+                self.email is not None and self.session is not None
+                and self.session.selected is not None
+                and self.session.selected.project_id == state.project_id
+                and self.session.selected.document_id == self.document_id
+                and state.flow_origin == "https://flow.google.com"
+            ) else ("login_required" if state.state == "login_required" else "unknown"),
+            "project_id": state.project_id,
+            "url": url,
+        }
+
     async def ready(self) -> None:
         from playwright.async_api import Error
 
@@ -242,6 +277,7 @@ class ManagedBrowser:
         allowed = {
             "list_projects",
             "list_project_media",
+            "find_project_media",
             "create_project",
             "delete_project",
             "probe",
